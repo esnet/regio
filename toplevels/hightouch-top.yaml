@@ -1,0 +1,82 @@
+blocks:
+  syscfg: &syscfg
+    !include syscfg.yaml
+  qdma_function: &qdma_function
+    !include qdma_function.yaml
+  qdma_subsystem: &qdma_subsystem
+    !include qdma_subsystem.yaml
+  cmac: &cmac
+    !include cmac.yaml
+  qsfp28_i2c: &qsfp28_i2c
+    !include qsfp28_i2c.yaml
+  cmac_adapter: &cmac_adapter
+    !include cmac_adapter.yaml
+  sdnet: &sdnet
+    !include sdnet.yaml
+  histograms: &histograms
+    !include histogram.yaml
+  bx: &bx
+    !include bx.yaml
+  userbox: &userbox
+    !include userbox.yaml
+
+toplevel:
+  name: htfpga
+  info: |
+    High Touch FPGA
+    Used to track packet flows and report on useful statistics and measurements
+  pci_vendor: 0x10ee
+  pci_device: 0x903f
+  bars:
+    0:
+      name: bar0
+      desc: DMA memory
+      size: 131072
+      blocks: []
+
+    2:
+      name: bar2
+      desc: all user logic
+      size: 1048576
+      blocks:
+        - offset: 0x00000
+          block: *syscfg
+        - offset: 0x01000
+          block: *qdma_function
+          as: qdma_func0
+        - offset: 0x02000
+          block: *qdma_function
+          as: qdma_func1
+        - offset: 0x05000
+          block: *qdma_subsystem
+          as: qdma_subsys
+
+        - offset: 0x08000
+          block: *cmac
+          as: cmac0
+        - offset: 0x0A000
+          block: *qsfp28_i2c
+          as: qsfp28_i2c0
+        - offset: 0x0B000
+          block: *cmac_adapter
+          as: cmac_adapter0
+
+        - offset: 0x0C000
+          block: *cmac
+          as: cmac1
+        - offset: 0x0E000
+          block: *qsfp28_i2c
+          as: qsfp28_i2c1
+        - offset: 0x0F000
+          block: *cmac_adapter
+          as: cmac_adapter1
+
+        - offset: 0x20000
+          block: *sdnet
+        - offset: 0x24000
+          block: *histograms
+        - offset: 0x28000
+          block: *bx
+        - offset: 0x30000
+          block: *userbox
+
