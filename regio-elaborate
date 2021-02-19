@@ -223,7 +223,7 @@ def elaborate_toplevel(top):
 @click.command()
 @click.option('-i', '--include-dir',
               help="Include directory for block definitions",
-              default=Path(__file__).parent.absolute().joinpath('blocks.d'),
+              default=Path(__file__).parent.absolute().joinpath('blocks'),
               show_default=True,
               type=click.Path(exists=True, file_okay=False))
 @click.option('-o', '--output-file',

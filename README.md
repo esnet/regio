@@ -31,7 +31,7 @@ Advanced usage
 
 Elaborate only a single block (rather than an entire toplevel definition) and dump the output to stdout
 ```
-./regio-elaborate -f block ./blocks.d/userbox.yaml
+./regio-elaborate -f block ./blocks/userbox.yaml
 ```
 
 Tool regio-generate
@@ -56,7 +56,7 @@ Advanced usage
 Generate only sv code for a single block with elaborated yaml taken from stdin
 ```
 mkdir -p /tmp/some-output-dir
-./regio-elaborate -f block ./blocks.d/userbox.yaml | \
+./regio-elaborate -f block ./blocks/userbox.yaml | \
   ./regio-generate -f block -g sv -o /tmp/some-output-dir -
 ```
 
