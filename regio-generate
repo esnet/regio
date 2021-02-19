@@ -1,0 +1,91 @@
+#!/usr/bin/python3
+
+import click
+from pathlib import Path
+
+from jinja2 import Template, Environment, FileSystemLoader
+
+from yaml import load, dump
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
+
+@click.command()
+@click.option('-t', '--template-dir',
+              help="Path to the templates",
+              default=Path(__file__).parent.absolute().joinpath('templates'),
+              show_default=True,
+              type=click.Path(exists=True, file_okay=False))
+@click.option('-o', '--output-dir',
+              help="Path where output files will be written",
+              required=True,
+              type=click.Path(exists=True, file_okay=False))
+@click.option('-p', '--prefix',
+              default='',
+              help="Prefix added to all output file names")
+@click.option('-f', '--file-type',
+              help="Type of input yaml file",
+              type=click.Choice(['top', 'block']),
+              default='top',
+              show_default=True)
+@click.option('-g', '--generator', "generators",
+              help="Generator to use for producing the output",
+              default=['sv', 'c'],
+              show_default=True,
+              multiple=True,
+              type=click.Choice(['sv', 'c']))
+@click.argument('yaml-file',
+                type=click.File('r'))
+def main(template_dir, output_dir, prefix, file_type, generators, yaml_file):
+    env = Environment(loader=FileSystemLoader(template_dir))
+    env.add_extension('jinja2.ext.loopcontrols')
+
+    regmap = load(yaml_file, Loader=Loader)
+
+    if file_type == "top":
+        top = regmap['toplevel']
+        blks = regmap['blocks'].values()
+    else:
+        top = None
+        blks = [regmap,]
+
+    if 'sv' in generators:
+        # Produce all System Verilog output files
+        for blk in blks:
+            t = env.get_template('reg_pkg_sv.j2')
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_pkg.sv')
+            with outfilename.open(mode='w') as f:
+                t.stream(blk = blk).dump(f)
+
+            t = env.get_template('reg_intf_sv.j2')
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_intf.sv')
+            with outfilename.open(mode='w') as f:
+                t.stream(blk = blk).dump(f)
+            
+            t = env.get_template('reg_blk_sv.j2')
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk.sv')
+            with outfilename.open(mode='w') as f:
+                t.stream(blk = blk).dump(f)
+
+    if 'c' in generators:
+        # Produce all C language output files
+        if top is not None:
+            t = env.get_template('toplevel_c.j2')
+            outfilename = Path(output_dir) / (prefix + top['name'] + '_toplevel.h')
+            with outfilename.open(mode='w') as f:
+                t.stream(top = top).dump(f)
+        for blk in blks:
+            t = env.get_template('block_c.j2')
+            ctypes = {
+                 8 : "uint8_t ",
+                16 : "uint16_t",
+                32 : "uint32_t",
+                64 : "uint64_t",
+            }
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_block.h')
+            with outfilename.open(mode='w') as f:
+                t.stream(blk = blk, ctypes=ctypes).dump(f)
+
+if __name__ == "__main__":
+    main()

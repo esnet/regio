@@ -1,0 +1,266 @@
+#!/usr/bin/python3
+
+import click
+from pathlib import Path
+
+from yaml import load, dump
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
+
+from yamlinclude import YamlIncludeConstructor
+
+name_escape = str.maketrans("~!@#$%^&*()-+=;,./?",
+                            "___________________")
+
+def elaborate_fields(flds_in, defaults):
+    # Set up some default defaults in addition to the ones inherited from the containing register
+    defaults.update({
+    })
+
+    fld_offset = 0
+    flds = []
+    synth_fld_cnt = 0
+    for fld in flds_in:
+        if 'default' in fld:
+            defaults.update(fld['default'])
+            continue
+        
+        # Set up a new field based on current context
+        fnew = {}
+        fnew.update(defaults)
+        fnew.update({
+            'offset': fld_offset,
+        })
+
+        if 'meta' in fld:
+            meta = fld['meta']
+            if 'pad_until' in meta:
+                if fld_offset > meta['pad_until']:
+                    # Negative padding!
+                    print("Negative padding requested at offset", fld_offset)
+                    sys.exit(1)
+                elif fld_offset == meta['pad_until']:
+                    # No padding required
+                    print("Padding not required at offset", fld_offset)
+                    sys.exit(1)
+                else:
+                    fnew.update({
+                        'name':   "anon{:03d}".format(synth_fld_cnt),
+                        'access': 'none',
+                        'width':  (meta['pad_until'] - fld_offset)
+                    })
+                    synth_fld_cnt += 1
+        else:
+            fnew.update(fld)
+
+        # Provide safe names
+        safename = fnew['name'].translate(name_escape)
+        fnew.update({
+            'name':       safename,
+            'name_lower': safename.lower(),
+            'name_upper': safename.upper(),
+        })
+
+        # Compute the appropriate mask
+        fnew.update({
+            'mask':  ((1 << fnew['width']) - 1 << fld_offset)
+        })
+
+        flds.append(fnew)
+        fld_offset += fnew['width']
+
+    return flds, fld_offset
+
+def elaborate_regs(regs_in):
+    # Set up some default defaults
+    defaults = {
+        'count' : 1,
+        'access' : 'ro'
+    }
+
+    reg_offset = 0
+    regs = []
+    synth_reg_cnt = 0
+    for reg in regs_in:
+        if 'default' in reg:
+            defaults.update(reg['default'])
+            continue
+
+        # Set up a new register based on current context
+        rnew = {}
+        rnew.update(defaults)
+        rnew.update({
+            'offset': reg_offset,
+        })
+
+        if 'meta' in reg:
+            meta = reg['meta']
+            if 'pad_until' in meta:
+                if reg_offset > meta['pad_until']:
+                    # Negative padding!
+                    print("Negative padding requested at offset", reg_offset)
+                    sys.exit(1)
+                elif reg_offset == meta['pad_until']:
+                    # No padding required
+                    print("Padding not required at offset", reg_offset)
+                    sys.exit(1)
+                else:
+                    rnew.update({
+                        'name':   "anon{:03d}".format(synth_reg_cnt),
+                        'access': 'none',
+                        'width': 8,
+                        'count':  (meta['pad_until'] - reg_offset)
+                    })
+                    synth_reg_cnt += 1
+        else:
+            # merge in the yaml register definition
+            rnew.update(reg)
+            if 'fields' in rnew:
+                # Elaborate the fields
+                field_defaults = {
+                    'access': rnew['access']
+                }
+                rnew['fields'], rnew['computed_width'] = elaborate_fields(rnew['fields'], field_defaults)
+
+        # Provide safe names
+        safename = rnew['name'].translate(name_escape)
+        rnew.update({
+            'name':       safename.translate(name_escape),
+            'name_lower': safename.lower(),
+            'name_upper': safename.upper(),
+        })
+
+        regs.append(rnew)
+        reg_offset += (rnew['width'] * rnew['count']) // 8
+
+    return regs, reg_offset
+
+
+def elaborate_block(blk):
+    # Provide safe names
+    safename = blk['name'].translate(name_escape)
+    blk.update({
+        'name':       safename,
+        'name_lower': safename.lower(),
+        'name_upper': safename.upper(),
+    })
+
+    # Elaborate the regs
+    blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
+
+def elaborate_bar_blks(blks_in):
+    blk_offset = 0
+    blks = []
+    synth_blk_cnt = 0
+    for blk in blks_in:
+        # Provide safe names
+        if 'as' in blk:
+            safename = blk['as'].translate(name_escape)
+            blk.update({
+                'as':       safename,
+                'as_lower': safename.lower(),
+                'as_upper': safename.upper(),
+            })
+
+        # Check the offsets
+        if 'offset' in blk:
+            offset = blk['offset']
+            if offset > blk_offset:
+                # Need to insert a pad block before this block
+                blks.append({
+                    'anon': "anon{:03d}".format(synth_blk_cnt),
+                    'offset': blk_offset,
+                    'count': offset - blk_offset,
+                })
+                synth_blk_cnt += 1
+                blk_offset = offset
+            elif offset < blk_offset:
+                # Overlapping blks!
+                print("Overlapping blocks at offset", offset)
+                print("  Previous block overlaps by %u bytes" % blk_offset - offset)
+                sys.exit(1)
+            else:
+                # Everything lines up perfectly
+                pass
+        blk_offset += blk['block']['computed_size']
+        blks.append(blk)
+
+    return blks, blk_offset
+    
+def elaborate_toplevel(top):
+    PAGE_SIZE = 4096
+
+    # Provide safe names
+    safename = top['name'].translate(name_escape)
+    top.update({
+        'name':       safename,
+        'name_lower': safename.lower(),
+        'name_upper': safename.upper(),
+    })
+
+    # Elaborate the bars
+    for barid, bar in top['bars'].items():
+        # Provide safe names
+        safename = bar['name'].translate(name_escape)
+        bar.update({
+            'name':       safename,
+            'name_lower': safename.lower(),
+            'name_upper': safename.upper(),
+        })
+        
+        # Elaborate the bar blocks
+        bar['blocks'], bar['size_bytes'] = elaborate_bar_blks(bar['blocks'])
+        
+        # Fill in the size in pages
+        blk_size_pages = bar['size_bytes'] // PAGE_SIZE
+        if bar['size_bytes'] % PAGE_SIZE > 0:
+            blk_size_pages += 1
+        bar['size_pages'] = blk_size_pages
+
+
+@click.command()
+@click.option('-i', '--include-dir',
+              help="Include directory for block definitions",
+              default=Path(__file__).parent.absolute().joinpath('blocks.d'),
+              show_default=True,
+              type=click.Path(exists=True, file_okay=False))
+@click.option('-o', '--output-file',
+              help="Output file for elaborated yaml file",
+              default="-",
+              show_default=True,
+              type=click.File('w'))
+@click.option('-f', '--file-type',
+              help="Type of input yaml file",
+              type=click.Choice(['top', 'block']),
+              default='top',
+              show_default=True)
+@click.argument('yaml-file',
+                type=click.File('r'))
+def main(include_dir, output_file, file_type, yaml_file):
+    """Reads in a concise yaml regmap definition and fully
+    elaborates it to produce a self-contained, verbose regmap 
+    file that can be used by code generators"""
+    
+    if include_dir is not None:
+        YamlIncludeConstructor.add_to_loader_class(loader_class=Loader, base_dir=include_dir)
+
+    regmap = load(yaml_file, Loader=Loader)
+
+    if file_type == "top":
+        blocks = regmap['blocks']
+        for _, blk in blocks.items():
+            elaborate_block(blk)
+
+        toplevel = regmap['toplevel']
+        elaborate_toplevel(toplevel)
+    elif file_type == "block":
+        elaborate_block(regmap)
+    else:
+        pass
+
+    dump(regmap, output_file, Dumper=Dumper)
+
+if __name__ == "__main__":
+    main()
