@@ -1,0 +1,5 @@
+name: sdnet
+info: |
+  This block contains the registers for the xilinx sdnet IP.
+  The memory offsets into this block are currently unmanaged by this tool.
+regs: []

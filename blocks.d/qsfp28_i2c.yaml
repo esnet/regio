@@ -1,0 +1,5 @@
+name: qsfp28_i2c
+info: |
+  Placeholder for an i2c controller.
+  Part of the opennic shell.
+regs: []

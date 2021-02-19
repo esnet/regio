@@ -1,0 +1,4 @@
+name: qdma_function
+info: |
+  Placeholder for the Xilinx QDMA Function block
+regs: []

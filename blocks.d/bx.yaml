@@ -1,0 +1,4 @@
+name: bx
+info: |
+  The memory offsets into this block are currently unmanaged by this tool.
+regs: []
