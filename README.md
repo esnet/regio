@@ -16,9 +16,9 @@ You can think of the elaborated version of the yaml file as an IR (Internal Repr
 Typical usage
 -------------
 
-Read an FPGA toplevel register map (`htfpga.yaml`) and produce an elaborated version (`htfpga-ir.yaml`).
+Read an FPGA toplevel register map (`hightouch-top.yaml`) and produce an elaborated version (`hightouch-top-ir.yaml`).
 ```
-regio-elaborate -o htfpga-ir.yaml htfpga.yaml
+./regio-elaborate -o /tmp/hightouch-top-ir.yaml toplevels/hightouch-top.yaml
 ```
 
 This will:
@@ -31,7 +31,7 @@ Advanced usage
 
 Elaborate only a single block (rather than an entire toplevel definition) and dump the output to stdout
 ```
-regio-elaborate -f block ./blocks.d/userbox.yaml
+./regio-elaborate -f block ./blocks.d/userbox.yaml
 ```
 
 Tool regio-generate
@@ -46,7 +46,8 @@ Typical usage
 
 Read an elaborated toplevel yaml file and generate code for all available languages.
 ```
-regio-generate -o /tmp/some-output-dir htfpga-ir.yaml
+mkdir -p /tmp/some-output-dir
+./regio-generate -o /tmp/some-output-dir /tmp/hightouch-top-ir.yaml
 ```
 
 Advanced usage
@@ -54,8 +55,9 @@ Advanced usage
 
 Generate only sv code for a single block with elaborated yaml taken from stdin
 ```
-regio-elaborate -f block ./blocks.d/userbox.yaml | \
-  regio-generate -f block -g sv -o /tmp/some-output-dir -
+mkdir -p /tmp/some-output-dir
+./regio-elaborate -f block ./blocks.d/userbox.yaml | \
+  ./regio-generate -f block -g sv -o /tmp/some-output-dir -
 ```
 
 Regmap file format
