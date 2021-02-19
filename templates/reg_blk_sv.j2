@@ -1,0 +1,89 @@
+module {{ blk.name_lower }}_reg_blk (
+    axi4l_intf.peripheral axil_if,
+    {{ blk.name_lower }}_reg_intf.controller reg_blk_if
+);
+
+import {{ blk.name_lower }}_reg_pkg::*;
+
+// -------------------------------------------------------------
+// Terminate AXI-L interface
+// -------------------------------------------------------------
+
+reg_intf #(.ADDR_WID(BLOCK_ADDR_WID)) reg_if ();
+
+axi4l_reg_peripheral i_axi4l_reg_peripheral (
+    .axi4l_if (axil_if),
+    .reg_if (reg_if)
+);
+
+assign reg_if.wr_ack = reg_if.wr;
+assign reg_if.wr_error = 1'b0;
+
+// -------------------------------------------------------------
+// Registers
+// -------------------------------------------------------------
+
+{%  for reg in blk.regs: -%}
+  {%- if reg.access == "none" %}
+    {%- continue %}
+  {%- endif %}
+// {{ reg.name_upper }} ({{ reg.width }}-bit, {{ reg.access }})
+  {%- if reg.access == "ro" %}
+reg_ro #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
+    .clk (reg_if.clk), .srst (reg_if.srst),
+    .upd_en (reg_blk_if.{{ reg.name_lower }}_nxt_v), .upd_data (reg_blk_if.{{ reg.name_lower }}_nxt),
+    .rd_data (reg_blk_if.{{ reg.name_lower }})
+);
+  {%- elif reg.access == "wr_evt" %}
+reg_wr_evt #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
+    .clk (reg_if.clk), .srst (reg_if.srst),
+    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
+    .wr_evt (reg_blk_if.{{ reg.name_lower }}_wr_evt),
+    .rd_data (reg_blk_if.{{ reg.name_lower }})
+);
+  {%- elif reg.access == "rw" %}
+reg_rw #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
+    .clk (reg_if.clk), .srst (reg_if.srst),
+    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
+    .rd_data (reg_blk_if.{{ reg.name_lower }})
+);
+  {%- endif %}
+{%- endfor %}
+
+// -------------------------------------------------------------
+// Read address decode and data mux
+// -------------------------------------------------------------
+initial begin
+    reg_if.rd_data = 0;
+    reg_if.rd_ack = 1'b0;
+    reg_if.rd_error = 1'b0;
+end
+always @(posedge reg_if.clk) begin
+    if (reg_if.srst) begin
+        reg_if.rd_data <= 0;
+        reg_if.rd_ack <= 1'b0;
+        reg_if.rd_error <= 1'b0;
+    end else begin
+        if (reg_if.rd) begin
+            reg_if.rd_ack <= 1'b1;
+            reg_if.rd_error <= 1'b0;
+            case (reg_if.rd_addr)
+{%-  for reg in blk.regs: %}
+  {%- if reg.access == "none" %}
+    {%- continue %}
+  {%- endif %}
+                OFFSET_{{ "{:35}".format(reg.name_upper ~ ':') }} reg_if.rd_data <= reg_blk_if.{{ reg.name_lower }};
+{%- endfor %}
+                default: begin
+                    reg_if.rd_data <= 'hDEADBEEF;
+                    reg_if.rd_error <= 1'b1;
+                end
+            endcase
+        end else begin
+            reg_if.rd_ack <= 1'b0;
+            reg_if.rd_error <= 1'b0;
+        end
+    end
+end
+
+endmodule : {{ blk.name_lower }}_reg_blk

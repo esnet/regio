@@ -1,0 +1,47 @@
+interface {{ blk.name_lower }}_reg_intf ();
+
+    import {{ blk.name_lower }}_reg_pkg::*;
+{%  for reg in blk.regs: -%}
+  {%- if reg.access == "ro" %}
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt;
+    logic {{ reg.name_lower }}_nxt_v;
+  {%- elif reg.access == "wr_evt" %}
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+    logic {{ reg.name_lower }}_wr_evt;
+  {%- elif reg.access == "rw" %}
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+  {%- endif %}
+{%- endfor %}
+
+    modport controller (
+{%- for reg in blk.regs: -%}
+  {%- if reg.access == "ro" %}
+        output {{ reg.name_lower }},
+        input {{ reg.name_lower }}_nxt,
+        input {{ reg.name_lower }}_nxt_v{{ ',' if not loop.last }}
+  {%- elif reg.access == "wr_evt" %}
+        output {{ reg.name_lower }},
+        output {{ reg.name_lower }}_wr_evt{{ ',' if not loop.last }}
+  {%- elif reg.access == "rw" %}
+        output {{ reg.name_lower }}{{ ',' if not loop.last }}
+  {%- endif %}
+{%- endfor %}
+    );
+
+    modport peripheral (
+{%- for reg in blk.regs: -%}
+  {%- if reg.access == "ro" %}
+        input {{ reg.name_lower }},
+        output {{ reg.name_lower }}_nxt,
+        output {{ reg.name_lower }}_nxt_v{{ ',' if not loop.last }}
+  {%- elif reg.access == "wr_evt" %}
+        input {{ reg.name_lower }},
+        input {{ reg.name_lower }}_wr_evt{{ ',' if not loop.last }}
+  {%- elif reg.access == "rw" %}
+        input {{ reg.name_lower }}{{ ',' if not loop.last }}
+  {%- endif %}
+{%- endfor %}
+    );
+
+endinterface : {{ blk.name_lower }}_reg_intf
