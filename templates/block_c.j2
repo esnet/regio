@@ -68,13 +68,13 @@ struct {{ blk.name_lower }}_block {
 {%- for reg in blk.regs: %}
   {%- if reg.count and reg.count > 1: %}
     {%- if reg.fields: %}
-  {{ "{:60}".format('union' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
+  {{ "{:60}".format('union ' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
     {%- else: %}
   {{ "{:60}".format(ctypes[reg.width] ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
     {%- endif %}
   {%- else: %}
     {%- if reg.fields: %}
-  {{ "{:60}".format('union' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ ';') }} //
+  {{ "{:60}".format('union ' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ ';') }} //
     {%- else: %}
   {{ "{:60}".format(ctypes[reg.width] ~ ' ' ~ reg.name_lower ~ ';') }} //
     {%- endif %}
