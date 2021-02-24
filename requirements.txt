@@ -1,4 +1,1 @@
-pyyaml
 pyyaml-include
-jinja2
-click

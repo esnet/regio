@@ -2,8 +2,8 @@
 Install dependencies
 ====================
 ```
-sudo apt install python3-yaml
-pip install -r requirements.txt
+sudo apt install python3-yaml python3-jinja2 python3-click
+pip3 install -r requirements.txt
 ```
 
 Tool regio-elaborate
