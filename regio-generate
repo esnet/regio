@@ -38,7 +38,7 @@ except ImportError:
 @click.argument('yaml-file',
                 type=click.File('r'))
 def main(template_dir, output_dir, prefix, file_type, generators, yaml_file):
-    env = Environment(loader=FileSystemLoader(template_dir))
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
     env.add_extension('jinja2.ext.loopcontrols')
 
     regmap = load(yaml_file, Loader=Loader)
