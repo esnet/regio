@@ -6,6 +6,55 @@ sudo apt install python3-yaml python3-jinja2 python3-click
 pip3 install -r requirements.txt
 ```
 
+Tool regio
+==========
+This tool is used to dump out raw register values and their fields on a running system.
+
+**Note**: You must have a matching elaborated regmap for the running FPGA for this tool to work properly.  See `regio-elaborate` tool below for details of how you can generate this file.
+
+Dump out all registers in a specific block
+------------------------------------------
+```
+$ sudo ./regio syscfg
+[syscfg]
+           0: 20022300  build_status
+           4: --------  system_reset
+           8: 00000001  system_status
+              00000001  [ 0: 0]         1  system_reset_done
+           c: --------  shell_reset
+          10: ffffffff  shell_status
+              00000004  [ 2: 2]         1  cmac1_reset_done
+              00000002  [ 1: 1]         1  cmac0_reset_done
+              00000001  [ 0: 0]         1  qdma_reset_done
+          14: --------  user_reset
+          18: ffffffff  user_status
+```
+
+Dump out one specific register within a block
+---------------------------------------------
+```
+$ sudo ./regio syscfg.shell_status
+          10: ffffffff  syscfg.shell_status
+              00000004  [ 2: 2]         1  cmac1_reset_done
+              00000002  [ 1: 1]         1  cmac0_reset_done
+              00000001  [ 0: 0]         1  qdma_reset_done
+```
+
+Advanced usage
+--------------
+The path to the regmap file may be specified as a command line parameter or as an environment variable.
+
+Example using command line option
+```
+sudo ./regio --regmap /tmp/hightouch-top-ir.yaml syscfg
+```
+
+Example using an environment variable
+```
+export REGIO_REGMAP=/tmp/hightouch-top-ir.yaml
+sudo ./regio syscfg
+```
+
 Tool regio-elaborate
 ====================
 

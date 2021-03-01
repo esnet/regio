@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+
+import click
+from pathlib import Path
+import mmap
+import sys
+import struct
+import os
+
+from yaml import load, dump
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
+
+SYSFS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
+
+@click.command()
+@click.option('-s', '--select',
+              help="Select a specific PCIe device (domain:bus:device.function)",
+              default="0000:d8:00.0",
+              show_default=True)
+@click.option('-b', '--bar',
+              help="Select which PCIe bar to use for IO",
+              default=2,
+              show_default=True)
+@click.option('-r', '--regmap',
+              help="Path to fully elaborated regmap yaml file for this device",
+              default='./hightouch-top-ir.yaml',
+              show_default=True,
+              type=click.File('r'))
+@click.argument('register')
+def main(select, bar, regmap, register):
+
+    regmap = load(regmap, Loader=Loader)
+
+    if not "toplevel" in regmap:
+        print("ERROR: No toplevel defined in regmap.  Are you sure that's a regmap file?")
+        sys.exit(1)
+
+    toplevel = regmap['toplevel']
+    if not "bars" in toplevel:
+        print("ERROR: No bars defined in toplevel.  Are you sure that's a regmap file?")
+        sys.exit(1)
+
+    bars = toplevel['bars']
+    if not bar in bars:
+        print("ERROR: Bar {} is not defined in regmap (only {} are defined)".format(bar, ", ".join(["{:d}".format(b) for b in bars])))
+        sys.exit(1)
+
+    device_path = Path(SYSFS_BUS_PCI_DEVICES) / select
+    if not device_path.exists():
+        print("ERROR: Selected device does not exist.  Is the FPGA loaded and the PCIe bus rescanned?")
+        sys.exit(1)
+
+    resource_path = Path(SYSFS_BUS_PCI_DEVICES) / select / "resource{:d}".format(bar)
+    if not resource_path.exists():
+        print("ERROR: Selected bar does not exist for the selected device.  Is the FPGA loaded?")
+        sys.exit(1)
+
+    with resource_path.open('rb') as f:
+        m = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
+
+    from itertools import chain, repeat
+
+    blk_name, reg_name, fld_name, *_ = chain(register.split('.'), repeat(None, 5))
+    if blk_name is None:
+        print("ERROR: No block name specified in {}".format(register))
+        sys.exit(1)
+
+    # Build up the block name to block instance map
+    blk_region_map = {}
+    for i, v in enumerate(bars[bar]['blocks']):
+        # skip any padding blocks
+        if 'anon' in v:
+            continue
+
+        if 'as' in v:
+            blk_region_map.update({ v['as'] : i })
+        else:
+            blk_region_map.update({ v['block']['name'] : i })
+
+    if not blk_name in blk_region_map:
+        print("ERROR: Bar {} does not contain a block called {}".format(bar, blk_name))
+        sys.exit(1)
+
+    blk_region = bars[bar]['blocks'][blk_region_map[blk_name]]
+    blk = blk_region['block']
+
+    width_map = {
+         8 : ("@B", "02x"),
+        16 : ("@H", "04x"),
+        32 : ("@I", "08x"),
+        64 : ("@L", "016x"),
+    }
+
+    def print_fields(reg, v):
+        width_map_no_zeros = {
+                 8 : " 2x",
+                16 : " 4x",
+                32 : " 8x",
+                64 : " 16x",
+        }
+        offset = reg['computed_width']
+        for fld in reversed(reg['fields']):
+            start = offset - 1
+            end = offset - fld['width']
+            reg_fmt = width_map[reg['width']][1]
+            fld_fmt = width_map_no_zeros[reg['width']]
+            shift = fld['offset']
+            mask  = (1 << fld['width']) - 1
+            v_masked = v & (mask << shift)
+            v_f = (v >> shift) & mask
+            fld_name = fld['name']
+            print(f'              {v_masked:{reg_fmt}}  [{start:-2d}:{end:-2d}]  {v_f:{fld_fmt}}  {fld_name}')
+            offset -= fld['width']
+            
+    if reg_name is not None:
+        # build up the register name to register instance map
+        reg_map = {v['name'] : i for (i, v) in enumerate(blk['regs'])}
+
+        if reg_name not in reg_map:
+            print("ERROR: Block {} does not contain a register called {}".format(blk_name, reg_name))
+            sys.exit(1)
+
+        reg = blk['regs'][reg_map[reg_name]]
+
+        offset = blk_region['offset'] + reg['offset']
+        width = reg['width']
+        access = reg['access']
+
+        data_fmt = struct.Struct(width_map[width][0])
+        v = data_fmt.unpack(m[offset:offset+data_fmt.size])[0]
+        print("    {: 8X}: {:08x}  {}".format(offset, v, register))
+        if 'fields' in reg:
+            print_fields(reg, v)
+    else:
+        # Print out all of the defined registers in the block
+        print("[{}]".format(blk_name))
+        for reg in blk['regs']:
+            offset = blk_region['offset'] + reg['offset']
+            width = reg['width']
+            access = reg['access']
+
+            if reg['access'] == "none":
+                continue
+            if reg['access'] == "wo":
+                print("    {: 8x}: --------  {}".format(offset, reg['name']))
+                continue
+
+            data_fmt = struct.Struct(width_map[width][0])
+            v = data_fmt.unpack(m[offset:offset+data_fmt.size])[0]
+            print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
+            if 'fields' in reg:
+                print_fields(reg, v)
+
+if __name__ == "__main__":
+    main(auto_envvar_prefix='REGIO')
+
+
