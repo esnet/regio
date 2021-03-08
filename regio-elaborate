@@ -180,7 +180,7 @@ def elaborate_bar_blks(blks_in):
             elif offset < blk_offset:
                 # Overlapping blks!
                 print("Overlapping blocks at offset", offset)
-                print("  Previous block overlaps by %u bytes" % blk_offset - offset)
+                print("  Previous block overlaps by %u bytes" % (blk_offset - offset,))
                 sys.exit(1)
             else:
                 # Everything lines up perfectly
