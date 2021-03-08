@@ -57,10 +57,19 @@ package {{ blk.name_lower }}_reg_pkg;
         // -------------------------------------------------------------
 {% for reg in blk.regs: -%}
 {%-   if reg.access != "none": %}
-{%-     if 'init' in reg: %}
+{%-     if not 'fields' in reg: %}
 	localparam reg_{{ reg.name_lower }}_t INIT_{{ reg.name_upper }} = {{ reg.init }};
+{%-     else %}
+{%-       for field in reg.fields: %}
+        localparam fld_{{ reg.name_lower }}_{{ field.name_lower }}_t INIT_{{ reg.name_upper }}_{{ field.name_upper }} = {{ field.init }};
+{%-       endfor %}
+	localparam reg_{{ reg.name_lower }}_t INIT_{{ reg.name_upper }} = '{
+{%-       for field in reg.fields: %}
+            {{ "{:25}".format(field.name_lower) }} : INIT_{{ reg.name_upper }}_{{ field.name_upper }}{{ ',' if not loop.last }}
+{%-       endfor %}
+        };
 {%-     endif %}
 {%-   endif %}
-{%- endfor %}
+{% endfor %}
 
 endpackage : {{ blk.name_lower }}_reg_pkg
