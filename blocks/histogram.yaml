@@ -10,9 +10,13 @@ regs:
     width: 8
     access: ro
     fields:
+      - name: word
+        width: 1
+      - name: bin
+        width: 5
       - name: code
         desc: Status code
-        width: 8
+        width: 2
         enum_hex:
           0 : RESET
           1 : IDLE
