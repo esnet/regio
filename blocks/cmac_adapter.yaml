@@ -1,4 +1,4 @@
-name: cmac_adapater
+name: cmac_adapter
 info: |
   Glue logic between a Xilinx CMAC and the Xilinx SDnet block
   Part of the opennic shell
