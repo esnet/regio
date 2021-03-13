@@ -1,0 +1,22 @@
+name: cmac_crossbar
+
+blocks:
+  cmac: &cmac
+    !include cmac.yaml
+  qsfp28_i2c: &qsfp28_i2c
+    !include qsfp28_i2c.yaml
+  cmac_adapter: &cmac_adapter
+    !include cmac_adapter.yaml
+
+interfaces:
+  - block: *cmac
+    address: 0x00000
+    width: 13
+
+  - block: *qsfp28_i2c
+    address: 0x02000
+    width: 12
+    
+  - block: *cmac_adapter
+    address: 0x03000
+    width: 12

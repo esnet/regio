@@ -45,14 +45,24 @@ def main(template_dir, output_dir, prefix, file_type, generators, yaml_file):
 
     if file_type == "top":
         top = regmap['toplevel']
-        blks = regmap['blocks'].values()
+        blks = {}
+        for _, bar in top['bars'].items():
+            # Add all blocks referenced by all regions in the bar
+            for region in bar['regions']:
+                if 'block' in region:
+                    blk = region['block']
+                    blks.update({
+                        blk['name'] : blk
+                    })
     else:
         top = None
-        blks = [regmap,]
+        blks = {
+            regmap['name'] : regmap
+        }
 
     if 'sv' in generators:
         # Produce all System Verilog output files
-        for blk in blks:
+        for _, blk in blks.items():
             t = env.get_template('reg_pkg_sv.j2')
             outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_pkg.sv')
             with outfilename.open(mode='w') as f:
@@ -74,8 +84,8 @@ def main(template_dir, output_dir, prefix, file_type, generators, yaml_file):
             t = env.get_template('toplevel_c.j2')
             outfilename = Path(output_dir) / (prefix + top['name'] + '_toplevel.h')
             with outfilename.open(mode='w') as f:
-                t.stream(top = top).dump(f)
-        for blk in blks:
+                t.stream(top = top, blks = blks).dump(f)
+        for _, blk in blks.items():
             t = env.get_template('block_c.j2')
             ctypes = {
                  8 : "uint8_t ",

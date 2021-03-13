@@ -1,0 +1,22 @@
+name: qdma_crossbar
+
+blocks:
+  qdma_function: &qdma_function
+    !include qdma_function.yaml
+  qdma_subsystem: &qdma_subsystem
+    !include qdma_subsystem.yaml
+
+interfaces:
+  - block: *qdma_function
+    as: qdma_func0
+    address: 0x0000
+    width: 12
+
+  - block: *qdma_function
+    as: qdma_func1
+    address: 0x1000
+    width: 12
+
+  - block: *qdma_subsystem
+    address: 0x4000
+    width: 12
