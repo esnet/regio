@@ -1,0 +1,29 @@
+name: ht_datapath_crossbar
+
+blocks:
+  histograms: &histograms
+    !include histogram.yaml
+  sdnet: &sdnet
+    !include sdnet.yaml
+  bx: &bx
+    !include bx.yaml
+  userbox: &userbox
+    !include userbox.yaml
+
+interfaces:
+  - block: *sdnet
+    address: 0x00000
+    width: 14
+
+  - block: *histograms
+    address: 0x04000
+    width: 14
+
+  - block: *bx
+    address: 0x08000
+    width: 15
+
+  - block: *userbox
+    address: 0x10000
+    width: 12
+

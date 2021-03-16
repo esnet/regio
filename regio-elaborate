@@ -153,45 +153,91 @@ def elaborate_block(blk):
     # Elaborate the regs
     blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
 
-def elaborate_bar_blks(blks_in):
-    blk_offset = 0
-    blks = []
-    synth_blk_cnt = 0
-    for blk in blks_in:
-        # Provide safe names
-        if 'as' in blk:
-            safename = blk['as'].translate(name_escape)
-            blk.update({
-                'as':       safename,
-                'as_lower': safename.lower(),
-                'as_upper': safename.upper(),
-            })
+def elaborate_crossbar(crossbar):
+    # Elaborate any referenced child blocks
+    if 'blocks' in crossbar:
+        for _, blk in crossbar['blocks'].items():
+            elaborate_block(blk)
 
-        # Check the offsets
-        if 'offset' in blk:
-            offset = blk['offset']
-            if offset > blk_offset:
-                # Need to insert a pad block before this block
-                blks.append({
-                    'anon': "anon{:03d}".format(synth_blk_cnt),
-                    'offset': blk_offset,
-                    'count': offset - blk_offset,
-                })
-                synth_blk_cnt += 1
-                blk_offset = offset
-            elif offset < blk_offset:
-                # Overlapping blks!
-                print("Overlapping blocks at offset", offset)
-                print("  Previous block overlaps by %u bytes" % (blk_offset - offset,))
+    # Elaborate any referenced child crossbars
+    if 'crossbars' in crossbar:
+        for _, cbar in crossbar['crossbars'].items():
+            elaborate_crossbar(cbar)
+
+    # Provide safe names
+    safename = crossbar['name'].translate(name_escape)
+    crossbar.update({
+        'name':       safename,
+        'name_lower': safename.lower(),
+        'name_upper': safename.upper(),
+    })
+
+    # TODO Check if any of the address ranges on any of the interfaces overlap
+    # TODO Check if all of the address ranges fit within the address ranges of the master
+
+    # Elaborate the region list from the interfaces defined in this crossbar
+    crossbar['regions'] = []
+    if 'interfaces' in crossbar:
+        for i, intf in enumerate(crossbar['interfaces']):
+            if not 'address' in intf:
+                print("Crossbar {}: Missing 'address' definition".format(crossbar['name']))
                 sys.exit(1)
-            else:
-                # Everything lines up perfectly
-                pass
-        blk_offset += blk['block']['computed_size']
-        blks.append(blk)
+            if not 'width' in intf:
+                print("Crossbar {}: Missing 'intf' definition".format(crossbar['name']))
+                sys.exit(1)
 
-    return blks, blk_offset
-    
+            intf_size_bytes = 2**intf['width']
+
+            if 'crossbar' in intf:
+                # bubble the regions upward, adding in this interface's offset
+                for region in intf['crossbar']['regions']:
+                    new_region = {
+                        'offset' : intf['address'] + region['offset'],
+                        'block'  : region['block'],
+                        'size'   : region['size'],
+                    }
+                    if 'as' in region:
+                        new_region.update({
+                            'as'       : region['as'],
+                            'as_lower' : region['as'].lower(),
+                            'as_upper' : region['as'].upper(),
+                        })
+                    if 'suffix' in intf:
+                        asname = new_region.get('as', new_region['block']['name']) + intf['suffix']
+                        new_region.update({
+                            'as'       : asname,
+                            'as_lower' : asname.lower(),
+                            'as_upper' : asname.upper(),
+                        })
+                    crossbar['regions'].append(new_region)
+            elif 'block' in intf:
+                blk = intf['block']
+                if blk['computed_size'] > intf_size_bytes:
+                    print("Crossbar {} interface {} block {} exceeds interface width".format(
+                        crossbar['name'],
+                        i,
+                        blk['name']))
+                    sys.exit(1)
+                new_region = {
+                    'offset' : intf['address'],
+                    'block'  : intf['block'],
+                    'size'   : intf_size_bytes,
+                }
+                if 'as' in intf:
+                    new_region.update({
+                        'as' : intf['as'],
+                    })
+                if 'suffix' in intf:
+                    asname = new_region.get('as', new_region['block']['name']) + intf['suffix']
+                    new_region.update({
+                        'as'       : asname,
+                        'as_lower' : asname.lower(),
+                        'as_upper' : asname.upper(),
+                    })
+                crossbar['regions'].append(new_region)
+
+    return
+
 def elaborate_toplevel(top):
     PAGE_SIZE = 4096
 
@@ -213,14 +259,76 @@ def elaborate_toplevel(top):
             'name_upper': safename.upper(),
         })
         
-        # Elaborate the bar blocks
-        bar['blocks'], bar['size_bytes'] = elaborate_bar_blks(bar['blocks'])
+        # Elaborate the crossbar
+        crossbar = bar['crossbar']
+        elaborate_crossbar(crossbar)
+
+        # Insert padding between the regions
+        padded_regions = []
+        offset = 0
+        synth_region_cnt = 0
+        for region in sorted(crossbar['regions'], key=lambda r: r['offset']):
+            # Check if we padding between regions
+            if region['offset'] > offset:
+                # Insert padding before region
+                padded_regions.append({
+                    'anon' : "anon{:03d}".format(synth_region_cnt),
+                    'offset' : offset,
+                    'count' : region['offset'] - offset,
+                    'size' : region['offset'] - offset,
+                })
+                synth_region_cnt += 1
+                offset = region['offset']
+            elif region['offset'] < offset:
+                # Overlapping regions
+                print("Overlapping regions at offset", offset)
+                print("  Previous region overlaps this region ({}) by {:d} bytes".format(
+                    region['block']['name'],
+                    region['offset'] - offset,))
+                sys.exit(1)
+            else:
+                # Everything lines up perfectly
+                pass
+
+            # Insert the current block
+            padded_regions.append(region)
+            offset += region['block']['computed_size']
+
+            # Check if we need any padding to fill up the region
+            pad_size = region['size'] - region['block']['computed_size']
+            if pad_size > 0:
+                padded_regions.append({
+                    'anon' : "anon{:03d}".format(synth_region_cnt),
+                    'offset' : offset,
+                    'count' : pad_size,
+                    'size' : pad_size,
+                })
+                offset += pad_size
+                synth_region_cnt += 1
+
+        # Check if we need padding at the end
+        if offset < bar['size']:
+            # Insert padding to fill up the bar
+            padded_regions.append({
+                'anon' : "anon{:03d}".format(synth_region_cnt),
+                'offset' : offset,
+                'count' : bar['size'] - offset
+            })
+        elif offset > bar['size']:
+            # Regions don't fit within the bar
+            print("Regions exceed bar size by {} bytes".format(bar['size'] - offset))
+            sys.exit(1)
+        else:
+            # Everything lines up perfectly
+            pass
+
+        bar['regions'] = padded_regions
         
         # Fill in the size in pages
-        blk_size_pages = bar['size_bytes'] // PAGE_SIZE
-        if bar['size_bytes'] % PAGE_SIZE > 0:
-            blk_size_pages += 1
-        bar['size_pages'] = blk_size_pages
+        bar_size_pages = bar['size'] // PAGE_SIZE
+        if bar['size'] % PAGE_SIZE > 0:
+            bar_size_pages += 1
+        bar['size_pages'] = bar_size_pages
 
 
 @click.command()
@@ -236,7 +344,7 @@ def elaborate_toplevel(top):
               type=click.File('w'))
 @click.option('-f', '--file-type',
               help="Type of input yaml file",
-              type=click.Choice(['top', 'block']),
+              type=click.Choice(['top', 'block', 'crossbar']),
               default='top',
               show_default=True)
 @click.argument('yaml-file',
@@ -252,14 +360,12 @@ def main(include_dir, output_file, file_type, yaml_file):
     regmap = load(yaml_file, Loader=Loader)
 
     if file_type == "top":
-        blocks = regmap['blocks']
-        for _, blk in blocks.items():
-            elaborate_block(blk)
-
         toplevel = regmap['toplevel']
         elaborate_toplevel(toplevel)
     elif file_type == "block":
         elaborate_block(regmap)
+    elif file_type == "crossbar":
+        elaborate_crossbar(regmap)
     else:
         pass
 

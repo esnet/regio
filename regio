@@ -69,23 +69,23 @@ def main(select, bar, regmap, register):
         sys.exit(1)
 
     # Build up the block name to block instance map
-    blk_region_map = {}
-    for i, v in enumerate(bars[bar]['blocks']):
+    region_map = {}
+    for i, v in enumerate(bars[bar]['crossbar']['regions']):
         # skip any padding blocks
         if 'anon' in v:
             continue
 
         if 'as' in v:
-            blk_region_map.update({ v['as'] : i })
+            region_map.update({ v['as'] : i })
         else:
-            blk_region_map.update({ v['block']['name'] : i })
+            region_map.update({ v['block']['name'] : i })
 
-    if not blk_name in blk_region_map:
+    if not blk_name in region_map:
         print("ERROR: Bar {} does not contain a block called {}".format(bar, blk_name))
         sys.exit(1)
 
-    blk_region = bars[bar]['blocks'][blk_region_map[blk_name]]
-    blk = blk_region['block']
+    region = bars[bar]['crossbar']['regions'][region_map[blk_name]]
+    blk = region['block']
 
     width_map = {
          8 : ("@B", "02x"),
@@ -125,7 +125,7 @@ def main(select, bar, regmap, register):
 
         reg = blk['regs'][reg_map[reg_name]]
 
-        offset = blk_region['offset'] + reg['offset']
+        offset = region['offset'] + reg['offset']
         width = reg['width']
         access = reg['access']
 
@@ -138,7 +138,7 @@ def main(select, bar, regmap, register):
         # Print out all of the defined registers in the block
         print("[{}]".format(blk_name))
         for reg in blk['regs']:
-            offset = blk_region['offset'] + reg['offset']
+            offset = region['offset'] + reg['offset']
             width = reg['width']
             access = reg['access']
 
