@@ -11,6 +11,11 @@ interface {{ blk.name_lower }}_reg_intf ();
     logic {{ reg.name_lower }}_wr_evt;
   {%- elif reg.access == "rw" %}
     reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+  {%- elif reg.access == "rd_evt" %}
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt;
+    logic {{ reg.name_lower }}_nxt_v;
+    logic {{ reg.name_lower }}_rd_evt;
   {%- endif %}
 {%- endfor %}
 
@@ -25,6 +30,11 @@ interface {{ blk.name_lower }}_reg_intf ();
         output {{ reg.name_lower }}_wr_evt{{ ',' if not loop.last }}
   {%- elif reg.access == "rw" %}
         output {{ reg.name_lower }}{{ ',' if not loop.last }}
+  {%- elif reg.access == "rd_evt" %}
+        output {{ reg.name_lower }},
+        input {{ reg.name_lower }}_nxt,
+        input {{ reg.name_lower }}_nxt_v,
+        output {{ reg.name_lower }}_rd_evt{{ ',' if not loop.last }}
   {%- endif %}
 {%- endfor %}
     );
@@ -40,6 +50,11 @@ interface {{ blk.name_lower }}_reg_intf ();
         input {{ reg.name_lower }}_wr_evt{{ ',' if not loop.last }}
   {%- elif reg.access == "rw" %}
         input {{ reg.name_lower }}{{ ',' if not loop.last }}
+  {%- elif reg.access == "rd_evt" %}
+        input {{ reg.name_lower }},
+        output {{ reg.name_lower }}_nxt,
+        output {{ reg.name_lower }}_nxt_v,
+        input {{ reg.name_lower }}_rd_evt{{ ',' if not loop.last }}
   {%- endif %}
 {%- endfor %}
     );

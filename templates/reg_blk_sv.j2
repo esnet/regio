@@ -38,14 +38,22 @@ reg_ro #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lowe
 reg_wr_evt #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
     .clk (reg_if.clk), .srst (reg_if.srst),
     .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
-    .wr_evt (reg_blk_if.{{ reg.name_lower }}_wr_evt),
-    .rd_data (reg_blk_if.{{ reg.name_lower }})
+    .rd_data (reg_blk_if.{{ reg.name_lower }}),
+    .wr_evt (reg_blk_if.{{ reg.name_lower }}_wr_evt)
 );
   {%- elif reg.access == "rw" %}
 reg_rw #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
     .clk (reg_if.clk), .srst (reg_if.srst),
     .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
     .rd_data (reg_blk_if.{{ reg.name_lower }})
+);
+  {%- elif reg.access == "rd_evt" %}
+reg_rd_evt #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
+    .clk (reg_if.clk), .srst (reg_if.srst),
+    .rd (reg_if.rd), .rd_en (reg_if.rd_addr == OFFSET_{{ reg.name_upper }}),
+    .upd_en (reg_blk_if.{{ reg.name_lower }}_nxt_v), .upd_data (reg_blk_if.{{ reg.name_lower }}_nxt),
+    .rd_data (reg_blk_if.{{ reg.name_lower }}),
+    .rd_evt (reg_blk_if.{{ reg.name_lower }}_rd_evt)
 );
   {%- endif %}
 {%- endfor %}
