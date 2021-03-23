@@ -13,6 +13,39 @@ try:
 except ImportError:
     from yaml import Loader, Dumper
 
+struct_width_map = {
+     8 : "@B",
+    16 : "@H",
+    32 : "@I",
+    64 : "@L",
+}
+
+def read_mem(mem, offset, reg):
+    addr   = offset + reg['offset']
+    width  = reg['width']
+    access = reg['access']
+
+    data_fmt = struct.Struct(struct_width_map[width])
+    v = data_fmt.unpack(mem[addr:addr+data_fmt.size])[0]
+    return v
+
+def write_mem(mem, offset, reg, v):
+    addr   = offset + reg['offset']
+    width  = reg['width']
+    access = reg['access']
+
+    data_fmt = struct.Struct(struct_width_map[width])
+    mem[addr:addr+data_fmt.size] = data_fmt.pack(v)
+
+def update_field(reg_val, fld, fld_val):
+    shift = fld['offset']
+    mask  = (1 << fld['width']) - 1
+
+    reg_val &= ~(mask << shift)
+    reg_val |= ((fld_val & mask) << shift)
+
+    return reg_val
+
 SYSFS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
 
 @click.command()
@@ -63,9 +96,12 @@ def main(select, bar, regmap, register):
 
     from itertools import chain, repeat
 
-    blk_name, reg_name, fld_name, *_ = chain(register.split('.'), repeat(None, 5))
+    # Check if we have an assignment
+    lhs, rhs, *_ = chain(register.split('='), repeat(None, 5))
+
+    blk_name, reg_name, fld_name, *_ = chain(lhs.split('.'), repeat(None, 5))
     if blk_name is None:
-        print("ERROR: No block name specified in {}".format(register))
+        print("ERROR: No block name specified in {}".format(lhs))
         sys.exit(1)
 
     # Build up the block name to block instance map
@@ -87,25 +123,104 @@ def main(select, bar, regmap, register):
     region = bars[bar]['crossbar']['regions'][region_map[blk_name]]
     blk = region['block']
 
-    width_map = {
-         8 : ("@B", "02x"),
-        16 : ("@H", "04x"),
-        32 : ("@I", "08x"),
-        64 : ("@L", "016x"),
-    }
+    if reg_name is not None:
+        # Build up the register name to register instance map
+        reg_map = {v['name'] : i for (i, v) in enumerate(blk['regs'])}
+
+        # Make sure we are referring to a valid register name in this block
+        if reg_name not in reg_map:
+            print("ERROR: Block {} does not contain a register called {}".format(blk_name, reg_name))
+            sys.exit(1)
+
+        reg = blk['regs'][reg_map[reg_name]]
+    else:
+        reg = None
+
+    if fld_name is not None:
+        # Build up the field name to field instance map for this register
+        fld_map = {v['name'] : i for (i, v) in enumerate(reg['fields'])}
+
+        # Make sure we are referring to a valid field name in this register
+        if fld_name not in fld_map:
+            print("ERROR: Register {} does not contain a field called {}".format(reg_name, fld_name))
+            sys.exit(1)
+
+        fld = reg['fields'][fld_map[fld_name]]
+    else:
+        fld = None
+
+    # Validate additional constraints for assignments
+    if rhs is not None:
+        # Assignments must include at least a register name
+        if reg is None:
+            print("ERROR: Assignments must provide at least a register name")
+            sys.exit(1)
+
+        # Try to convert the rhs to an int directly
+        if type(rhs) is str:
+            try:
+                rhs = int(rhs, 0)
+            except ValueError:
+                pass
+
+        # Try to convert the rhs to an int via a field enum
+        if type(rhs) is str:
+            if fld is not None and 'enum_hex' in fld:
+                # Build up the enum name to value instance map for this field
+                enum_map = {v : k for k, v in fld['enum_hex'].items()}
+                if rhs not in enum_map:
+                    print("ERROR: Field {} does not contain an enum called {}".format(fld_name, rhs))
+                    sys.exit(1)
+
+                # Convert the enum to a value
+                if type(enum_map[rhs]) is str:
+                    rhs = int(enum_map[rhs], 16)
+                else:
+                    rhs = enum_map[rhs]
+
+        if type(rhs) is not int:
+            print("ERROR: Can't convert {} to a value".format(rhs))
+            sys.exit(1)
+
+        #
+        # Ready to do a write operation
+        #
+        if fld is not None:
+            # Need to do a read + modify before writing the register back
+            curr_val = read_mem(m, region['offset'], reg)
+            v = update_field(curr_val, fld, rhs)
+        else:
+            # Use the rhs value directly since we're doing an entire register write
+            v = rhs
+
+        write_mem(m, region['offset'], reg, v)
+
+        sys.exit(0)
+
+    #
+    # We're just printing out blocks/registers/fields
+    #
 
     def print_fields(reg, v):
-        width_map_no_zeros = {
-                 8 : " 2x",
-                16 : " 4x",
-                32 : " 8x",
-                64 : " 16x",
+        width_map = {
+             8 : "02x",
+            16 : "04x",
+            32 : "08x",
+            64 : "016x",
         }
+
+        width_map_no_zeros = {
+             8 : " 2x",
+            16 : " 4x",
+            32 : " 8x",
+            64 : " 16x",
+        }
+
         offset = reg['computed_width']
         for fld in reversed(reg['fields']):
             start = offset - 1
             end = offset - fld['width']
-            reg_fmt = width_map[reg['width']][1]
+            reg_fmt = width_map[reg['width']]
             fld_fmt = width_map_no_zeros[reg['width']]
             shift = fld['offset']
             mask  = (1 << fld['width']) - 1
@@ -116,22 +231,9 @@ def main(select, bar, regmap, register):
             offset -= fld['width']
             
     if reg_name is not None:
-        # build up the register name to register instance map
-        reg_map = {v['name'] : i for (i, v) in enumerate(blk['regs'])}
-
-        if reg_name not in reg_map:
-            print("ERROR: Block {} does not contain a register called {}".format(blk_name, reg_name))
-            sys.exit(1)
-
-        reg = blk['regs'][reg_map[reg_name]]
-
         offset = region['offset'] + reg['offset']
-        width = reg['width']
-        access = reg['access']
-
-        data_fmt = struct.Struct(width_map[width][0])
-        v = data_fmt.unpack(m[offset:offset+data_fmt.size])[0]
-        print("    {: 8X}: {:08x}  {}".format(offset, v, register))
+        v = read_mem(m, region['offset'], reg)
+        print("    {: 8X}: {:08x}  {}".format(offset, v, reg_name))
         if 'fields' in reg:
             print_fields(reg, v)
     else:
@@ -139,7 +241,6 @@ def main(select, bar, regmap, register):
         print("[{}]".format(blk_name))
         for reg in blk['regs']:
             offset = region['offset'] + reg['offset']
-            width = reg['width']
             access = reg['access']
 
             if reg['access'] == "none":
@@ -148,8 +249,7 @@ def main(select, bar, regmap, register):
                 print("    {: 8x}: --------  {}".format(offset, reg['name']))
                 continue
 
-            data_fmt = struct.Struct(width_map[width][0])
-            v = data_fmt.unpack(m[offset:offset+data_fmt.size])[0]
+            v = read_mem(m, region['offset'], reg)
             print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
             if 'fields' in reg:
                 print_fields(reg, v)
