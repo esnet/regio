@@ -58,8 +58,8 @@ def main(select, bar, regmap, register):
         print("ERROR: Selected bar does not exist for the selected device.  Is the FPGA loaded?")
         sys.exit(1)
 
-    with resource_path.open('rb') as f:
-        m = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
+    with resource_path.open('r+b') as f:
+        m = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ | mmap.PROT_WRITE)
 
     from itertools import chain, repeat
 
