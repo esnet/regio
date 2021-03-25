@@ -40,6 +40,19 @@ $ sudo ./regio syscfg.shell_status
               00000001  [ 0: 0]         1  qdma_reset_done
 ```
 
+Writing to registers or fields within a register
+------------------------------------------------
+Field values can be set using enum names when defined for a given field
+```
+$ sudo ./regio ht_datapath.port_config.output_enable=PORT1
+```
+
+Register or field values can be written in binary (0b prefix), hex (0x prefix), octal (0o prefix) or decimal (no prefix)
+```
+$ sudo ./regio ht_datapath.port_config.output_enable=0b01
+$ sudo ./regio ht_datapath.port_config=0xa
+```
+
 Advanced usage
 --------------
 The path to the regmap file may be specified as a command line parameter or as an environment variable.
