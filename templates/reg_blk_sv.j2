@@ -9,15 +9,12 @@ import {{ blk.name_lower }}_reg_pkg::*;
 // Terminate AXI-L interface
 // -------------------------------------------------------------
 
-reg_intf #(.ADDR_WID(BLOCK_ADDR_WID)) reg_if ();
+reg_intf reg_if ();
 
 axi4l_reg_peripheral i_axi4l_reg_peripheral (
     .axi4l_if (axil_if),
     .reg_if (reg_if)
 );
-
-assign reg_if.wr_ack = reg_if.wr;
-assign reg_if.wr_error = 1'b0;
 
 // -------------------------------------------------------------
 // Registers
@@ -59,6 +56,36 @@ reg_rd_evt #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_
 {%- endfor %}
 
 // -------------------------------------------------------------
+// Write address decode
+// -------------------------------------------------------------
+initial begin
+    reg_if.wr_ack = 1'b0;
+    reg_if.wr_error = 1'b0;
+end
+always @(posedge reg_if.clk) begin
+    if (reg_if.srst) begin
+        reg_if.wr_ack <= 1'b0;
+        reg_if.wr_error <= 1'b0;
+    end else begin
+        if (reg_if.wr) begin
+            reg_if.wr_ack <= 1'b1;
+            reg_if.wr_error <= 1'b1;
+            case (reg_if.wr_addr)
+{%-  for reg in blk.regs: %}
+  {%- if reg.access == "none" %}
+    {%- continue %}
+  {%- endif %}
+                OFFSET_{{ "{:35}".format(reg.name_upper ~ ':') }} reg_if.wr_error <= 1'b0;
+{%- endfor %}
+            endcase
+        end else begin
+            reg_if.wr_ack <= 1'b0;
+            reg_if.wr_error <= 1'b0;
+        end
+    end
+end
+
+// -------------------------------------------------------------
 // Read address decode and data mux
 // -------------------------------------------------------------
 initial begin
@@ -83,7 +110,6 @@ always @(posedge reg_if.clk) begin
                 OFFSET_{{ "{:35}".format(reg.name_upper ~ ':') }} reg_if.rd_data <= reg_blk_if.{{ reg.name_lower }};
 {%- endfor %}
                 default: begin
-                    reg_if.rd_data <= 'hDEADBEEF;
                     reg_if.rd_error <= 1'b1;
                 end
             endcase
