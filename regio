@@ -106,7 +106,7 @@ def main(select, bar, regmap, register):
 
     # Build up the block name to block instance map
     region_map = {}
-    for i, v in enumerate(bars[bar]['crossbar']['regions']):
+    for i, v in enumerate(bars[bar]['decoder']['regions']):
         # skip any padding blocks
         if 'anon' in v:
             continue
@@ -120,7 +120,7 @@ def main(select, bar, regmap, register):
         print("ERROR: Bar {} does not contain a block called {}".format(bar, blk_name))
         sys.exit(1)
 
-    region = bars[bar]['crossbar']['regions'][region_map[blk_name]]
+    region = bars[bar]['decoder']['regions'][region_map[blk_name]]
     blk = region['block']
 
     if reg_name is not None:

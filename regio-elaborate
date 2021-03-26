@@ -153,20 +153,20 @@ def elaborate_block(blk):
     # Elaborate the regs
     blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
 
-def elaborate_crossbar(crossbar):
+def elaborate_decoder(dec):
     # Elaborate any referenced child blocks
-    if 'blocks' in crossbar:
-        for _, blk in crossbar['blocks'].items():
+    if 'blocks' in dec:
+        for _, blk in dec['blocks'].items():
             elaborate_block(blk)
 
-    # Elaborate any referenced child crossbars
-    if 'crossbars' in crossbar:
-        for _, cbar in crossbar['crossbars'].items():
-            elaborate_crossbar(cbar)
+    # Elaborate any referenced child decoders
+    if 'decoders' in dec:
+        for _, d in dec['decoders'].items():
+            elaborate_decoder(d)
 
     # Provide safe names
-    safename = crossbar['name'].translate(name_escape)
-    crossbar.update({
+    safename = dec['name'].translate(name_escape)
+    dec.update({
         'name':       safename,
         'name_lower': safename.lower(),
         'name_upper': safename.upper(),
@@ -175,22 +175,22 @@ def elaborate_crossbar(crossbar):
     # TODO Check if any of the address ranges on any of the interfaces overlap
     # TODO Check if all of the address ranges fit within the address ranges of the master
 
-    # Elaborate the region list from the interfaces defined in this crossbar
-    crossbar['regions'] = []
-    if 'interfaces' in crossbar:
-        for i, intf in enumerate(crossbar['interfaces']):
+    # Elaborate the region list from the interfaces defined in this decoder
+    dec['regions'] = []
+    if 'interfaces' in dec:
+        for i, intf in enumerate(dec['interfaces']):
             if not 'address' in intf:
-                print("Crossbar {}: Missing 'address' definition".format(crossbar['name']))
+                print("Decoder {}: Missing 'address' definition".format(dec['name']))
                 sys.exit(1)
             if not 'width' in intf:
-                print("Crossbar {}: Missing 'intf' definition".format(crossbar['name']))
+                print("Decoder {}: Missing 'intf' definition".format(dec['name']))
                 sys.exit(1)
 
             intf_size_bytes = 2**intf['width']
 
-            if 'crossbar' in intf:
+            if 'decoder' in intf:
                 # bubble the regions upward, adding in this interface's offset
-                for region in intf['crossbar']['regions']:
+                for region in intf['decoder']['regions']:
                     new_region = {
                         'offset' : intf['address'] + region['offset'],
                         'block'  : region['block'],
@@ -209,12 +209,12 @@ def elaborate_crossbar(crossbar):
                             'as_lower' : asname.lower(),
                             'as_upper' : asname.upper(),
                         })
-                    crossbar['regions'].append(new_region)
+                    dec['regions'].append(new_region)
             elif 'block' in intf:
                 blk = intf['block']
                 if blk['computed_size'] > intf_size_bytes:
-                    print("Crossbar {} interface {} block {} exceeds interface width".format(
-                        crossbar['name'],
+                    print("Decoder {} interface {} block {} exceeds interface width".format(
+                        dec['name'],
                         i,
                         blk['name']))
                     sys.exit(1)
@@ -234,7 +234,7 @@ def elaborate_crossbar(crossbar):
                         'as_lower' : asname.lower(),
                         'as_upper' : asname.upper(),
                     })
-                crossbar['regions'].append(new_region)
+                dec['regions'].append(new_region)
 
     return
 
@@ -259,15 +259,15 @@ def elaborate_toplevel(top):
             'name_upper': safename.upper(),
         })
         
-        # Elaborate the crossbar
-        crossbar = bar['crossbar']
-        elaborate_crossbar(crossbar)
+        # Elaborate the top-level decoder
+        dec = bar['decoder']
+        elaborate_decoder(dec)
 
         # Insert padding between the regions
         padded_regions = []
         offset = 0
         synth_region_cnt = 0
-        for region in sorted(crossbar['regions'], key=lambda r: r['offset']):
+        for region in sorted(dec['regions'], key=lambda r: r['offset']):
             # Check if we padding between regions
             if region['offset'] > offset:
                 # Insert padding before region
@@ -344,7 +344,7 @@ def elaborate_toplevel(top):
               type=click.File('w'))
 @click.option('-f', '--file-type',
               help="Type of input yaml file",
-              type=click.Choice(['top', 'block', 'crossbar']),
+              type=click.Choice(['top', 'block', 'decoder']),
               default='top',
               show_default=True)
 @click.argument('yaml-file',
@@ -364,8 +364,8 @@ def main(include_dir, output_file, file_type, yaml_file):
         elaborate_toplevel(toplevel)
     elif file_type == "block":
         elaborate_block(regmap)
-    elif file_type == "crossbar":
-        elaborate_crossbar(regmap)
+    elif file_type == "decoder":
+        elaborate_decoder(regmap)
     else:
         pass
 
