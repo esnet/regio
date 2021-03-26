@@ -1,4 +1,4 @@
-name: cmac_crossbar
+name: cmac
 
 blocks:
   cmac: &cmac

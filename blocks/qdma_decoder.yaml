@@ -1,4 +1,4 @@
-name: qdma_crossbar
+name: qdma
 
 blocks:
   qdma_function: &qdma_function
