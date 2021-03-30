@@ -35,27 +35,21 @@ toplevel:
         interfaces:
           - block: *syscfg
             address: 0x000000
-            width: 12
 
           - decoder: *qdma_decoder
             address: 0x001000
-            width: 15
 
           - decoder: *cmac_decoder
             address: 0x008000
-            width: 14
             suffix: '0'
 
           - decoder: *cmac_decoder
             address: 0x00C000
-            width: 14
             suffix: '1'
 
           - decoder: *box0_250mhz_decoder
             address: 0x010000
-            width: 16
 
           - decoder: *ht_datapath_decoder
             address: 0x020000
-            width: 16
 
