@@ -111,8 +111,8 @@ def main(select, bar, regmap, register):
         if 'anon' in v:
             continue
 
-        if 'as' in v:
-            region_map.update({ v['as'] : i })
+        if 'name' in v:
+            region_map.update({ v['name'] : i })
         else:
             region_map.update({ v['block']['name'] : i })
 
