@@ -99,38 +99,42 @@ def main(template_dir, output_dir, prefix, file_type, generators, yaml_file):
         sys.exit(1)
 
     if 'sv' in generators:
-        # Produce all System Verilog output files for blocks
-        for _, blk in blks.items():
-            t = env.get_template('reg_pkg_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_pkg.sv')
-            with outfilename.open(mode='w') as f:
-                t.stream(blk = blk).dump(f)
+        # for sv generators, produce only the outputs for the given file type, not for dependent file types
+        if file_type == "block":
+            # Produce all System Verilog output files for blocks
+            for _, blk in blks.items():
+                t = env.get_template('reg_pkg_sv.j2')
+                outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_pkg.sv')
+                with outfilename.open(mode='w') as f:
+                    t.stream(blk = blk).dump(f)
 
-            t = env.get_template('reg_intf_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_intf.sv')
-            with outfilename.open(mode='w') as f:
-                t.stream(blk = blk).dump(f)
+                t = env.get_template('reg_intf_sv.j2')
+                outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_intf.sv')
+                with outfilename.open(mode='w') as f:
+                    t.stream(blk = blk).dump(f)
             
-            t = env.get_template('reg_blk_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk.sv')
-            with outfilename.open(mode='w') as f:
-                t.stream(blk = blk).dump(f)
+                t = env.get_template('reg_blk_sv.j2')
+                outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk.sv')
+                with outfilename.open(mode='w') as f:
+                    t.stream(blk = blk).dump(f)
+        elif file_type == "decoder":
+            # Produce all System Verilog output files for decoders
+            for _, dec in decs.items():
+                dec_blks = blocks_from_regions(dec['regions'])
 
-        # Produce all System Verilog output files for decoders
-        for _, dec in decs.items():
-            dec_blks = blocks_from_regions(dec['regions'])
+                t = env.get_template('decoder_pkg_sv.j2')
+                outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder_pkg.sv')
+                with outfilename.open(mode='w') as f:
+                    t.stream(dec = dec, blks = dec_blks).dump(f)
 
-            t = env.get_template('decoder_pkg_sv.j2')
-            outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder_pkg.sv')
-            with outfilename.open(mode='w') as f:
-                t.stream(dec = dec, blks = dec_blks).dump(f)
-
-            t = env.get_template('decoder_sv.j2')
-            outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder.sv')
-            with outfilename.open(mode='w') as f:
-                t.stream(dec = dec, blks = dec_blks).dump(f)
+                t = env.get_template('decoder_sv.j2')
+                outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder.sv')
+                with outfilename.open(mode='w') as f:
+                    t.stream(dec = dec, blks = dec_blks).dump(f)
 
     if 'c' in generators:
+        # for c generators, produce all relevant dependent types
+
         # Produce all C language output files
         if top is not None:
             t = env.get_template('toplevel_c.j2')
