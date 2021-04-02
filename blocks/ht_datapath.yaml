@@ -1,0 +1,45 @@
+name: ht_datapath
+info: |
+  HT_datapath is the top level module for the 322+ MHz
+  packet processing blocks.
+
+regs:
+  - default:
+      width  : 32
+      access : ro
+      init   : 0
+
+  - name: status
+    init: 0xC0BEBEEF
+
+  - name: port_config
+    access: rw
+    fields:
+      - name: input_enable
+        width: 2
+        init : 3
+        enum_hex:
+          0 : NONE
+          1 : PORT0
+          2 : PORT1
+          3 : BOTH
+      - name: output_enable
+        width: 2
+        init : 1
+        enum_hex:
+          0 : NONE
+          1 : PORT0
+          2 : PORT1
+          3 : USE_META
+
+  - name: timestamp_lower
+    access : rw
+
+  - name: timestamp_upper
+    access : rw
+
+
+
+
+
+
