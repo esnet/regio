@@ -1,4 +1,4 @@
-name: ht_datapath_crossbar
+name: ht_datapath
 
 blocks:
   histograms: &histograms

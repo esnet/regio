@@ -12,6 +12,73 @@ except ImportError:
 
 from yamlinclude import YamlIncludeConstructor
 
+def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
+    merged_sorted = sorted(regions + padding, key=lambda r: r['offset'])
+    if min_offset is None:
+        if len(merged_sorted) > 0:
+            # Just start wherever the first region starts
+            first = merged_sorted[0]
+            min_offset = first['offset']
+        else:
+            # No hints for where to start, just assume zero
+            min_offset = 0
+
+    if max_offset is None:
+        if len(merged_sorted) > 0:
+            # Just end wherever the last region ends
+            last = merged_sorted[-1]
+            max_offset = last['offset']+last['size']
+        else:
+            # No hints for where to end, just assume zero size
+            max_offset = min_offset
+
+    new_padding = []
+
+    # Compute any required padding before the first region or between regions
+    offset = min_offset
+    for region in merged_sorted:
+        if region['offset'] > offset:
+            # Need padding before this region
+            new_padding.append({
+                'offset' : offset,
+                'size'   : region['offset'] - offset,
+            })
+            offset = region['offset']
+        elif region['offset'] < offset:
+            # Overlapping regions
+            print("Overlapping regions at offset", offset)
+            print("  Previous region overlaps this region (start offset {:08x}) by {:08x} bytes".format(
+                region['offset'],
+                offset - region['offset'],))
+            for r in merged_sorted:
+                print("\t{:08x}-{:08x} {}".format(
+                    r['offset'],
+                    r['offset']+r['size'],
+                    r.get('block',{}).get('name',"+++")))
+            sys.exit(1)
+        offset += region['size']
+
+    # Compute any padding between the end of the last region and the max_offset
+    if offset < max_offset:
+        # Need padding to fill out to the max_offset
+        new_padding.append({
+            'offset' : offset,
+            'size'   : max_offset - offset,
+        })
+        offset = max_offset
+    elif offset > max_offset:
+        # Contents exceed the size of the container
+        print("Regions exceed container by {:08x} bytes".format(offset - max_offset))
+        print("Min: {:08x}  Current: {:08x}  Max: {:08x}".format(min_offset, offset, max_offset))
+        for r in merged_sorted:
+            print("\t{:08x}-{:08x} {}".format(
+                r['offset'],
+                r['offset']+r['size'],
+                r.get('block',{}).get('name',"+++")))
+        sys.exit(1)
+
+    return new_padding, max_offset - min_offset
+
 name_escape = str.maketrans("~!@#$%^&*()-+=;,./?",
                             "___________________")
 
@@ -153,88 +220,121 @@ def elaborate_block(blk):
     # Elaborate the regs
     blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
 
-def elaborate_crossbar(crossbar):
+def elaborate_decoder(dec):
     # Elaborate any referenced child blocks
-    if 'blocks' in crossbar:
-        for _, blk in crossbar['blocks'].items():
+    if 'blocks' in dec:
+        for _, blk in dec['blocks'].items():
             elaborate_block(blk)
 
-    # Elaborate any referenced child crossbars
-    if 'crossbars' in crossbar:
-        for _, cbar in crossbar['crossbars'].items():
-            elaborate_crossbar(cbar)
+    # Elaborate any referenced child decoders
+    if 'decoders' in dec:
+        for _, d in dec['decoders'].items():
+            elaborate_decoder(d)
 
     # Provide safe names
-    safename = crossbar['name'].translate(name_escape)
-    crossbar.update({
+    safename = dec['name'].translate(name_escape)
+    dec.update({
         'name':       safename,
         'name_lower': safename.lower(),
         'name_upper': safename.upper(),
     })
 
-    # TODO Check if any of the address ranges on any of the interfaces overlap
-    # TODO Check if all of the address ranges fit within the address ranges of the master
-
-    # Elaborate the region list from the interfaces defined in this crossbar
-    crossbar['regions'] = []
-    if 'interfaces' in crossbar:
-        for i, intf in enumerate(crossbar['interfaces']):
+    # Elaborate the region list from the interfaces defined in this decoder
+    dec['regions'] = []
+    dec['padding'] = []
+    if 'interfaces' in dec:
+        for i, intf in enumerate(dec['interfaces']):
             if not 'address' in intf:
-                print("Crossbar {}: Missing 'address' definition".format(crossbar['name']))
-                sys.exit(1)
-            if not 'width' in intf:
-                print("Crossbar {}: Missing 'intf' definition".format(crossbar['name']))
+                print("Decoder {}: Missing 'address' definition".format(dec['name']))
                 sys.exit(1)
 
-            intf_size_bytes = 2**intf['width']
+            if 'size' in intf:
+                # size is explicitly specified and may not be a power of 2
+                intf_max_size_bytes = intf['size']
+            elif 'width' in intf:
+                # size is explicitly specified as exactly a power of 2
+                intf_max_size_bytes = 2**intf['width']
+            else:
+                # Size is dynamically calculated based on what this intf contains
+                intf_max_size_bytes = None
 
-            if 'crossbar' in intf:
+            intf['regions'] = []
+            intf['padding'] = []
+            if 'decoder' in intf:
                 # bubble the regions upward, adding in this interface's offset
-                for region in intf['crossbar']['regions']:
+                for region in intf['decoder']['regions']:
                     new_region = {
-                        'offset' : intf['address'] + region['offset'],
-                        'block'  : region['block'],
-                        'size'   : region['size'],
+                        'name'       : region['name'],
+                        'name_lower' : region['name_lower'],
+                        'name_upper' : region['name_upper'],
+                        'offset'     : intf['address'] + region['offset'],
+                        'block'      : region['block'],
+                        'size'       : region['size'],
                     }
-                    if 'as' in region:
-                        new_region.update({
-                            'as'       : region['as'],
-                            'as_lower' : region['as'].lower(),
-                            'as_upper' : region['as'].upper(),
-                        })
                     if 'suffix' in intf:
-                        asname = new_region.get('as', new_region['block']['name']) + intf['suffix']
+                        name = new_region['name'] + intf['suffix']
+                        safename = name.translate(name_escape)
                         new_region.update({
-                            'as'       : asname,
-                            'as_lower' : asname.lower(),
-                            'as_upper' : asname.upper(),
+                            'name'       : safename,
+                            'name_lower' : safename.lower(),
+                            'name_upper' : safename.upper(),
                         })
-                    crossbar['regions'].append(new_region)
+                    intf['regions'].append(new_region)
+
+                # bubble the padding upward, adding in this interface's offset
+                for pad in intf['decoder']['padding']:
+                    intf['padding'].append({
+                        'offset' : intf['address'] + pad['offset'],
+                        'size'   : pad['size'],
+                    })
+
             elif 'block' in intf:
                 blk = intf['block']
-                if blk['computed_size'] > intf_size_bytes:
-                    print("Crossbar {} interface {} block {} exceeds interface width".format(
-                        crossbar['name'],
-                        i,
-                        blk['name']))
-                    sys.exit(1)
                 new_region = {
                     'offset' : intf['address'],
                     'block'  : intf['block'],
-                    'size'   : intf_size_bytes,
+                    'size'   : blk['computed_size'],
                 }
-                if 'as' in intf:
-                    new_region.update({
-                        'as' : intf['as'],
-                    })
-                if 'suffix' in intf:
-                    asname = new_region.get('as', new_region['block']['name']) + intf['suffix']
-                    new_region.update({
-                        'as'       : asname,
-                        'as_lower' : asname.lower(),
-                        'as_upper' : asname.upper(),
-                    })
-                crossbar['regions'].append(new_region)
+
+                # use interface name, or fall back to block name
+                name = intf.get('name', blk.get('name'))
+                # append any suffixes defined at this interface
+                name += intf.get('suffix', "")
+                # generate a safename
+                safename = name.translate(name_escape)
+                new_region.update({
+                    'name'       : safename,
+                    'name_lower' : safename.lower(),
+                    'name_upper' : safename.upper(),
+                })
+                intf['regions'].append(new_region)
+
+            # Make sure every interface has a name, autgenerate if necessary
+            # Do this after evaluating the interfaces so regions don't pick up an autogen name
+            # TODO: Figure out if this has side effects when the same decoder is elaborated more than once
+            safename = intf.get('name', "client_if_{:02d}".format(i)).translate(name_escape)
+            intf.update({
+                'name':       safename,
+                'name_lower': safename.lower(),
+                'name_upper': safename.upper(),
+            })
+
+            # Compute padding to fill out the interface
+            if intf_max_size_bytes is not None:
+                intf_max_address = intf['address'] + intf_max_size_bytes
+            else:
+                intf_max_address = None
+            intf_padding, intf_size_bytes = compute_region_padding(intf['regions'], intf['padding'], intf['address'], intf_max_address)
+            intf['padding'].extend(intf_padding)
+            intf['size'] = intf_size_bytes
+
+            dec['regions'].extend(intf['regions'])
+            dec['padding'].extend(intf['padding'])
+
+    # Compute padding required before and between interfaces
+    decoder_padding, decoder_size = compute_region_padding(dec['regions'], dec['padding'], 0, None)
+    dec['padding'].extend(decoder_padding)
+    dec['size'] = decoder_size
 
     return
 
@@ -258,72 +358,17 @@ def elaborate_toplevel(top):
             'name_lower': safename.lower(),
             'name_upper': safename.upper(),
         })
-        
-        # Elaborate the crossbar
-        crossbar = bar['crossbar']
-        elaborate_crossbar(crossbar)
 
-        # Insert padding between the regions
-        padded_regions = []
-        offset = 0
-        synth_region_cnt = 0
-        for region in sorted(crossbar['regions'], key=lambda r: r['offset']):
-            # Check if we padding between regions
-            if region['offset'] > offset:
-                # Insert padding before region
-                padded_regions.append({
-                    'anon' : "anon{:03d}".format(synth_region_cnt),
-                    'offset' : offset,
-                    'count' : region['offset'] - offset,
-                    'size' : region['offset'] - offset,
-                })
-                synth_region_cnt += 1
-                offset = region['offset']
-            elif region['offset'] < offset:
-                # Overlapping regions
-                print("Overlapping regions at offset", offset)
-                print("  Previous region overlaps this region ({}) by {:d} bytes".format(
-                    region['block']['name'],
-                    region['offset'] - offset,))
-                sys.exit(1)
-            else:
-                # Everything lines up perfectly
-                pass
+        # Elaborate the top-level decoder
+        dec = bar['decoder']
+        elaborate_decoder(dec)
 
-            # Insert the current block
-            padded_regions.append(region)
-            offset += region['block']['computed_size']
+        # Promote all decoder regions up to the bar and pad it out to fill the bar
+        bar['regions'] = dec['regions']
+        bar_padding, bar_size = compute_region_padding(dec['regions'], dec['padding'], 0, bar['size'])
+        bar['padding'] = dec['padding'] + bar_padding
+        bar['size'] = bar_size
 
-            # Check if we need any padding to fill up the region
-            pad_size = region['size'] - region['block']['computed_size']
-            if pad_size > 0:
-                padded_regions.append({
-                    'anon' : "anon{:03d}".format(synth_region_cnt),
-                    'offset' : offset,
-                    'count' : pad_size,
-                    'size' : pad_size,
-                })
-                offset += pad_size
-                synth_region_cnt += 1
-
-        # Check if we need padding at the end
-        if offset < bar['size']:
-            # Insert padding to fill up the bar
-            padded_regions.append({
-                'anon' : "anon{:03d}".format(synth_region_cnt),
-                'offset' : offset,
-                'count' : bar['size'] - offset
-            })
-        elif offset > bar['size']:
-            # Regions don't fit within the bar
-            print("Regions exceed bar size by {} bytes".format(bar['size'] - offset))
-            sys.exit(1)
-        else:
-            # Everything lines up perfectly
-            pass
-
-        bar['regions'] = padded_regions
-        
         # Fill in the size in pages
         bar_size_pages = bar['size'] // PAGE_SIZE
         if bar['size'] % PAGE_SIZE > 0:
@@ -344,7 +389,7 @@ def elaborate_toplevel(top):
               type=click.File('w'))
 @click.option('-f', '--file-type',
               help="Type of input yaml file",
-              type=click.Choice(['top', 'block', 'crossbar']),
+              type=click.Choice(['top', 'block', 'decoder']),
               default='top',
               show_default=True)
 @click.argument('yaml-file',
@@ -364,8 +409,8 @@ def main(include_dir, output_file, file_type, yaml_file):
         elaborate_toplevel(toplevel)
     elif file_type == "block":
         elaborate_block(regmap)
-    elif file_type == "crossbar":
-        elaborate_crossbar(regmap)
+    elif file_type == "decoder":
+        elaborate_decoder(regmap)
     else:
         pass
 

@@ -1,4 +1,4 @@
-name: qdma_crossbar
+name: qdma
 
 blocks:
   qdma_function: &qdma_function
@@ -7,13 +7,13 @@ blocks:
     !include qdma_subsystem.yaml
 
 interfaces:
-  - block: *qdma_function
-    as: qdma_func0
+  - name: qdma_func0
+    block: *qdma_function
     address: 0x0000
     width: 12
 
-  - block: *qdma_function
-    as: qdma_func1
+  - name: qdma_func1
+    block: *qdma_function
     address: 0x1000
     width: 12
 

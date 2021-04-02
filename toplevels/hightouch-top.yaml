@@ -11,51 +11,45 @@ toplevel:
       name: bar0
       desc: DMA memory
       size: 0x00020000
-      crossbar:
-        name: bar0_crossbar
+      decoder:
+        name: bar0
         interfaces: []
     2:
       name: bar2
       desc: all user logic
       size: 0x00100000
-      crossbar:
-        name: bar2_crossbar
+      decoder:
+        name: bar2
         blocks:
           syscfg: &syscfg
             !include syscfg.yaml
-        crossbars:
-          qdma_crossbar: &qdma_crossbar
-            !include qdma_crossbar.yaml
-          cmac_crossbar: &cmac_crossbar
-            !include cmac_crossbar.yaml
-          box0_250mhz_crossbar: &box0_250mhz_crossbar
-            !include box0_250mhz_crossbar.yaml
-          ht_datapath_crossbar: &ht_datapath_crossbar
-            !include ht_datapath_crossbar.yaml
+        decoders:
+          qdma_decoder: &qdma_decoder
+            !include qdma_decoder.yaml
+          cmac_decoder: &cmac_decoder
+            !include cmac_decoder.yaml
+          box0_250mhz_decoder: &box0_250mhz_decoder
+            !include box0_250mhz_decoder.yaml
+          ht_datapath_decoder: &ht_datapath_decoder
+            !include ht_datapath_decoder.yaml
         interfaces:
           - block: *syscfg
             address: 0x000000
-            width: 12
 
-          - crossbar: *qdma_crossbar
+          - decoder: *qdma_decoder
             address: 0x001000
-            width: 15
 
-          - crossbar: *cmac_crossbar
+          - decoder: *cmac_decoder
             address: 0x008000
-            width: 14
             suffix: '0'
 
-          - crossbar: *cmac_crossbar
+          - decoder: *cmac_decoder
             address: 0x00C000
-            width: 14
             suffix: '1'
 
-          - crossbar: *box0_250mhz_crossbar
+          - decoder: *box0_250mhz_decoder
             address: 0x010000
-            width: 16
 
-          - crossbar: *ht_datapath_crossbar
+          - decoder: *ht_datapath_decoder
             address: 0x020000
-            width: 16
 
