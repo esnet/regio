@@ -20,22 +20,40 @@ struct_width_map = {
     64 : "@L",
 }
 
+# Note: It is essential to use a memoryview here rather than relying on
+#       the struct module.  Using the struct module definitely results in double
+#       reads to a register, possibly triggering side effects due to the
+#       extra read.
+# See: https://stackoverflow.com/a/53492789
 def read_mem(mem, offset, reg):
     addr   = offset + reg['offset']
     width  = reg['width']
     access = reg['access']
 
-    data_fmt = struct.Struct(struct_width_map[width])
-    v = data_fmt.unpack(mem[addr:addr+data_fmt.size])[0]
+    # Create a sub-memoryview of just the bytes we're interested in
+    reg_bytes = mem[addr:addr+(width>>3)]
+    # Cast the memview to the correct width
+    reg_cast  = reg_bytes.cast(struct_width_map[width])
+    # Read the value
+    v = reg_cast[0]
     return v
 
+# Note: It is essential to use a memoryview here rather than relying on
+#       the struct module.  Using the struct module may result in extra
+#       writes to a register, possibly triggering side effects due to the
+#       extra writes.
+# See: https://stackoverflow.com/a/53492789
 def write_mem(mem, offset, reg, v):
     addr   = offset + reg['offset']
     width  = reg['width']
     access = reg['access']
 
-    data_fmt = struct.Struct(struct_width_map[width])
-    mem[addr:addr+data_fmt.size] = data_fmt.pack(v)
+    # Create a sub-memoryview of just the bytes we're interested in
+    reg_bytes = mem[addr:addr+(width>>3)]
+    # Cast the memview to the correct width
+    reg_cast  = reg_bytes.cast(struct_width_map[width])
+    # Write the value
+    reg_cast[0] = v
 
 def update_field(reg_val, fld, fld_val):
     shift = fld['offset']
@@ -93,6 +111,7 @@ def main(select, bar, regmap, register):
 
     with resource_path.open('r+b') as f:
         m = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ | mmap.PROT_WRITE)
+        mv = memoryview(m)
 
     from itertools import chain, repeat
 
@@ -187,13 +206,13 @@ def main(select, bar, regmap, register):
         #
         if fld is not None:
             # Need to do a read + modify before writing the register back
-            curr_val = read_mem(m, region['offset'], reg)
+            curr_val = read_mem(mv, region['offset'], reg)
             v = update_field(curr_val, fld, rhs)
         else:
             # Use the rhs value directly since we're doing an entire register write
             v = rhs
 
-        write_mem(m, region['offset'], reg, v)
+        write_mem(mv, region['offset'], reg, v)
 
         sys.exit(0)
 
@@ -232,7 +251,7 @@ def main(select, bar, regmap, register):
             
     if reg_name is not None:
         offset = region['offset'] + reg['offset']
-        v = read_mem(m, region['offset'], reg)
+        v = read_mem(mv, region['offset'], reg)
         print("    {: 8X}: {:08x}  {}".format(offset, v, reg_name))
         if 'fields' in reg:
             print_fields(reg, v)
@@ -249,7 +268,7 @@ def main(select, bar, regmap, register):
                 print("    {: 8x}: --------  {}".format(offset, reg['name']))
                 continue
 
-            v = read_mem(m, region['offset'], reg)
+            v = read_mem(mv, region['offset'], reg)
             print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
             if 'fields' in reg:
                 print_fields(reg, v)
