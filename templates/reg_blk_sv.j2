@@ -34,14 +34,14 @@ reg_ro #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lowe
   {%- elif reg.access == "wr_evt" %}
 reg_wr_evt #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
     .clk (reg_if.clk), .srst (reg_if.srst),
-    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
+    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data), .wr_byte_en (reg_if.wr_byte_en),
     .rd_data (reg_blk_if.{{ reg.name_lower }}),
     .wr_evt (reg_blk_if.{{ reg.name_lower }}_wr_evt)
 );
   {%- elif reg.access == "rw" %}
 reg_rw #(reg_{{ reg.name_lower }}_t, INIT_{{ reg.name_upper }}) {{ reg.name_lower }}_reg (
     .clk (reg_if.clk), .srst (reg_if.srst),
-    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data[0 +: $bits(reg_{{ reg.name_lower }}_t)]),
+    .wr (reg_if.wr), .wr_en (reg_if.wr_addr == OFFSET_{{ reg.name_upper }}), .wr_data (reg_if.wr_data), .wr_byte_en (reg_if.wr_byte_en),
     .rd_data (reg_blk_if.{{ reg.name_lower }})
 );
   {%- elif reg.access == "rd_evt" %}
