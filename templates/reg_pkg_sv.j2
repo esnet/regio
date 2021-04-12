@@ -42,7 +42,7 @@ package {{ blk.name_lower }}_reg_pkg;
 {%-     endif %}
 {%-     if reg.fields: %}
     typedef struct packed {
-{%-       for field in reg.fields:  %}
+{%-       for field in reg.fields|reverse:  %}
         fld_{{ reg.name_lower }}_{{ field.name_lower }}_t {{ field.name_lower }};
 {%-       endfor %}
     } reg_{{ reg.name_lower }}_t;
@@ -60,11 +60,11 @@ package {{ blk.name_lower }}_reg_pkg;
 {%-     if not 'fields' in reg: %}
     localparam reg_{{ reg.name_lower }}_t INIT_{{ reg.name_upper }} = {{ reg.width }}'h{{ "{:X}".format(reg.init) }};
 {%-     else %}
-{%-       for field in reg.fields: %}
+{%-       for field in reg.fields|reverse: %}
     localparam fld_{{ reg.name_lower }}_{{ field.name_lower }}_t INIT_{{ reg.name_upper }}_{{ field.name_upper }} = fld_{{ reg.name_lower }}_{{ field.name_lower }}_t'({{ field.width }}'h{{ "{:X}".format(field.init) }});
 {%-       endfor %}
     localparam reg_{{ reg.name_lower }}_t INIT_{{ reg.name_upper }} = '{
-{%-       for field in reg.fields: %}
+{%-       for field in reg.fields|reverse: %}
         {{ "{:25}".format(field.name_lower) }} : INIT_{{ reg.name_upper }}_{{ field.name_upper }}{{ ',' if not loop.last }}
 {%-       endfor %}
     };
