@@ -5,7 +5,7 @@ info: |
 regs:
   - name: info
     desc: Info register.
-    width: 8
+    width: 32
     count: 1
     access: ro
     fields:
@@ -22,7 +22,7 @@ regs:
     access: ro
   - name: info_record
     desc: Describes size/format of stats records.
-    width: 16
+    width: 32
     access: ro
     fields:
       - name: num_bins
@@ -33,7 +33,7 @@ regs:
         width: 8
   - name: status
     desc: Status register.
-    width: 16
+    width: 32
     fields:
       - name: code
         desc: Status.
@@ -47,7 +47,7 @@ regs:
         width: 8
   - name: command
     desc: Command register
-    width: 8
+    width: 32
     access: wr_evt
     fields:
       - name: code
