@@ -17,7 +17,7 @@ toplevel:
     2:
       name: bar2
       desc: all user logic
-      size: 0x00100000
+      size: 0x00400000
       decoder:
         name: bar2
         blocks:
@@ -32,6 +32,8 @@ toplevel:
             !include box0_250mhz_decoder.yaml
           ht_datapath_decoder: &ht_datapath_decoder
             !include ht_datapath_decoder.yaml
+          sysmon_decoder: &sysmon_decoder
+            !include sysmon_decoder.yaml
         interfaces:
           - block: *syscfg
             address: 0x000000
@@ -47,9 +49,11 @@ toplevel:
             address: 0x00C000
             suffix: '1'
 
-          - decoder: *box0_250mhz_decoder
-            address: 0x010000
-
           - decoder: *ht_datapath_decoder
-            address: 0x020000
+            address: 0x200000
 
+          - decoder: *box0_250mhz_decoder
+            address: 0x140000
+
+          - decoder: *sysmon_decoder
+            address: 0x100000
