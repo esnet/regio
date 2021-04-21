@@ -36,7 +36,7 @@ regs:
     desc: Monitor for byte 2 of packed scratchpad register.
     access: ro
     fields:
-        - name: byte_2
+        - name: byte_3
           desc: scratchpad_packed[3]
           width: 8
   - name: scratchpad_unpacked_byte_0

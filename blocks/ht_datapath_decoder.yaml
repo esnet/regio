@@ -1,29 +1,34 @@
 name: ht_datapath
 
 blocks:
-  histograms: &histograms
-    !include histogram.yaml
+  ht_datapath: &ht_datapath
+    !include ht_datapath.yaml
+  reg_endian_check: &reg_endian_check
+    !include reg_endian_check.yaml
   sdnet: &sdnet
     !include sdnet.yaml
-  bx: &bx
-    !include bx.yaml
-  userbox: &userbox
-    !include userbox.yaml
+
+decoders:
+  ht_datapath_stats_decoder: &ht_datapath_stats_decoder
+    !include ht_datapath_stats_decoder.yaml
 
 interfaces:
-  - block: *sdnet
+  - block: *ht_datapath
     address: 0x00000
     width: 14
+    name: regif
 
-  - block: *histograms
+  - block: *reg_endian_check
     address: 0x04000
     width: 14
+    name: endian_check
 
-  - block: *bx
-    address: 0x08000
-    width: 15
-
-  - block: *userbox
+  - decoder: *ht_datapath_stats_decoder
     address: 0x10000
-    width: 12
+    width: 15
+    name: stats
 
+  - block: *sdnet
+    address: 0x80000
+    width: 19
+    name: sdnet
