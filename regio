@@ -29,14 +29,20 @@ def read_mem(mem, offset, reg):
     addr   = offset + reg['offset']
     width  = reg['width']
     access = reg['access']
+    count  = reg['count']
 
     # Create a sub-memoryview of just the bytes we're interested in
-    reg_bytes = mem[addr:addr+(width>>3)]
+    reg_bytes = mem[addr:addr+((width>>3) * count)]
     # Cast the memview to the correct width
     reg_cast  = reg_bytes.cast(struct_width_map[width])
-    # Read the value
-    v = reg_cast[0]
-    return v
+
+    # Read the value(s)
+    if count == 1:
+        # just return the value
+        return reg_cast[0]
+    else:
+        # return a list of values
+        return list(reg_cast[0:count])
 
 # Note: It is essential to use a memoryview here rather than relying on
 #       the struct module.  Using the struct module may result in extra
@@ -248,13 +254,19 @@ def main(select, bar, regmap, register):
             fld_name = fld['name']
             print(f'              {v_masked:{reg_fmt}}  [{start:-2d}:{end:-2d}]  {v_f:{fld_fmt}}  {fld_name}')
             offset -= fld['width']
-            
+
     if reg_name is not None:
         offset = region['offset'] + reg['offset']
         v = read_mem(mv, region['offset'], reg)
-        print("    {: 8X}: {:08x}  {}".format(offset, v, reg_name))
-        if 'fields' in reg:
-            print_fields(reg, v)
+        if type(v) == list:
+            for i, v_one in enumerate(v):
+                print("    {: 8X}: {:08x}  {}[{:d}]".format(offset+(i*(reg['width']>>3)), v_one, reg_name, i))
+                if 'fields' in reg:
+                    print_fields(reg, v_one)
+        else:
+            print("    {: 8X}: {:08x}  {}".format(offset, v, reg_name))
+            if 'fields' in reg:
+                print_fields(reg, v)
     else:
         # Print out all of the defined registers in the block
         print("[{}]".format(blk_name))
@@ -269,9 +281,15 @@ def main(select, bar, regmap, register):
                 continue
 
             v = read_mem(mv, region['offset'], reg)
-            print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
-            if 'fields' in reg:
-                print_fields(reg, v)
+            if type(v) == list:
+                for i, v_one in enumerate(v):
+                    print("    {: 8X}: {:08x}  {}[{:d}]".format(offset+(i*(reg['width']>>3)), v_one, reg['name'], i))
+                    if 'fields' in reg:
+                        print_fields(reg, v_one)
+            else:
+                print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
+                if 'fields' in reg:
+                    print_fields(reg, v)
 
 if __name__ == "__main__":
     main(auto_envvar_prefix='REGIO')
