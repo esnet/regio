@@ -21,6 +21,17 @@ def blocks_from_regions(regions):
             })
     return blks
 
+def get_decoder_tree(root):
+    decoders = {}
+    for intf in root['interfaces']:
+        if 'decoder' in intf:
+            dec = intf['decoder']
+            decoders.update(get_decoder_tree(dec))
+    decoders.update({
+        root['name'] : root
+    })
+    return decoders
+
 @click.command()
 @click.option('-t', '--template-dir',
               help="Path to the templates",
@@ -66,17 +77,6 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
                 # Add all blocks and decoders referenced by all regions in the bar
                 blks.update(blocks_from_regions(bar['regions']))
 
-                def get_decoder_tree(root):
-                    decoders = {}
-                    for intf in root['interfaces']:
-                        if 'decoder' in intf:
-                            dec = intf['decoder']
-                            decoders.update(get_decoder_tree(dec))
-                    decoders.update({
-                        root['name'] : root
-                    })
-                    return decoders
-
                 if 'decoder' in bar:
                     decs.update(get_decoder_tree(bar['decoder']))
 
@@ -87,12 +87,8 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
         }
         blks = {}
         if recursive:
-            for region in regmap['regions']:
-                if 'block' in region:
-                    blk = region['block']
-                    blks.update({
-                        blk['name'] : blk
-                    })
+            blks.update(blocks_from_regions(regmap['regions']))
+            decs.update(get_decoder_tree(regmap))
 
     elif file_type == "block":
         top = None
