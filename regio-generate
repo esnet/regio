@@ -59,7 +59,7 @@ def get_decoder_tree(root):
               default=['sv', 'c'],
               show_default=True,
               multiple=True,
-              type=click.Choice(['sv', 'c']))
+              type=click.Choice(['sv', 'svh', 'c']))
 @click.argument('yaml-file',
                 type=click.File('r'))
 def main(template_dir, output_dir, prefix, recursive, file_type, generators, yaml_file):
@@ -133,6 +133,22 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
             outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(dec = dec, blks = dec_blks).dump(f)
+
+    if 'svh' in generators:
+        # for svh generators, produce only the outputs for the given file type, not for dependent file types
+
+        # Produce all System Verilog header files for blocks
+        for _, blk in blks.items():
+            t = env.get_template('reg_blk_agent_svh.j2')
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk_agent.svh')
+            with outfilename.open(mode='w') as f:
+                t.stream(blk = blk).dump(f)
+
+        # Produce System Verilog package file to collect all header files under common namespace
+        t = env.get_template('reg_verif_pkg_sv.j2')
+        outfilename = Path(output_dir) / ('reg_verif_pkg.sv')
+        with outfilename.open(mode='w') as f:
+            t.stream(blks = blks).dump(f)
 
     if 'c' in generators:
         # for c generators, produce all relevant dependent types
