@@ -9,19 +9,19 @@ interface {{ blk.name_lower }}_reg_intf ();
     import {{ blk.name_lower }}_reg_pkg::*;
 {%  for reg in blk.regs: -%}
   {%- if reg.access == "ro" %}
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt;
-    logic {{ reg.name_lower }}_nxt_v;
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}{{ [reg.count] if reg.count > 1}};
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt{{ [reg.count] if reg.count > 1}};
+    logic {{ reg.name_lower }}_nxt_v{{ [reg.count] if reg.count > 1}};
   {%- elif reg.access == "wr_evt" %}
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
-    logic {{ reg.name_lower }}_wr_evt;
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}{{ [reg.count] if reg.count > 1}};
+    logic {{ reg.name_lower }}_wr_evt{{ [reg.count] if reg.count > 1}};
   {%- elif reg.access == "rw" %}
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}{{ [reg.count] if reg.count > 1}};
   {%- elif reg.access == "rd_evt" %}
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }};
-    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt;
-    logic {{ reg.name_lower }}_nxt_v;
-    logic {{ reg.name_lower }}_rd_evt;
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}{{ [reg.count] if reg.count > 1}};
+    reg_{{ reg.name_lower }}_t {{ reg.name_lower }}_nxt{{ [reg.count] if reg.count > 1}};
+    logic {{ reg.name_lower }}_nxt_v{{ [reg.count] if reg.count > 1}};
+    logic {{ reg.name_lower }}_rd_evt{{ [reg.count] if reg.count > 1}};
   {%- endif %}
 {%- endfor %}
 

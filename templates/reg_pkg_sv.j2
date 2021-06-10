@@ -17,9 +17,28 @@ package {{ blk.name_lower }}_reg_pkg;
     // Register address offsets
     // -------------------------------------------------------------
 {% for reg in blk.regs: -%}
-{%-   if reg.access != "none": %}
-    localparam int OFFSET_{{ "{:18}".format(reg.name_upper) }} = {{ "'h{:08X}".format(reg.offset) }};
-{%-   endif %}
+  {%- if reg.access == "none" %}
+    {% continue %}
+  {% endif -%}
+  {% if reg.count > 1 %}
+    localparam int OFFSET_{{ "{:24}".format("{}[{}]".format(reg.name_upper,reg.count)) }} = '{
+      {%- for i in range(reg.count) %}
+          {{ "{:<d}".format(i) }}: {{ "'h{:08X}".format(reg.offset + i*4) }}{{ ',' if not loop.last }}
+      {%- endfor %}
+    };
+  {%- else %}
+    localparam int OFFSET_{{ "{:24}".format(reg.name_upper) }} = {{ "'h{:08X}".format(reg.offset) }};
+  {%- endif %}
+{%- endfor %}
+
+    // -------------------------------------------------------------
+    // Register array sizes
+    // -------------------------------------------------------------
+{% for reg in blk.regs: -%}
+  {%- if reg.access == "none" %}
+    {% continue %}
+  {% endif %}
+    localparam int COUNT_{{ "{:24}".format(reg.name_upper) }} = {{ reg.count }};
 {%- endfor %}
 
     // -------------------------------------------------------------
