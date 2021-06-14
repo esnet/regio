@@ -137,18 +137,24 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
     if 'svh' in generators:
         # for svh generators, produce only the outputs for the given file type, not for dependent file types
 
-        # Produce all System Verilog header files for blocks
+        # Produce all System Verilog header files for blocks.
         for _, blk in blks.items():
             t = env.get_template('reg_blk_agent_svh.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk_agent.svh')
+            # Don't include prefix here.
+            # These header files get bundled into verif package. The prefix is applied to the package file only.
+            outfilename = Path(output_dir) / (blk['name'] + '_reg_blk_agent.svh')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
 
         # Produce System Verilog package file to collect all header files under common namespace
         t = env.get_template('reg_verif_pkg_sv.j2')
-        outfilename = Path(output_dir) / ('reg_verif_pkg.sv')
+        outfilename = Path(output_dir) / (prefix + 'reg_verif_pkg.sv')
         with outfilename.open(mode='w') as f:
-            t.stream(blks = blks).dump(f)
+            if prefix:
+                pkg_name = prefix.rstrip('_')
+            else:
+                pkg_name = 'local'
+            t.stream(blks = blks, pkg_name = pkg_name).dump(f)
 
     if 'c' in generators:
         # for c generators, produce all relevant dependent types
