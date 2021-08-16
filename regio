@@ -83,7 +83,7 @@ SYSFS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
               show_default=True)
 @click.option('-r', '--regmap',
               help="Path to fully elaborated regmap yaml file for this device",
-              default='./hightouch-top-ir.yaml',
+              default='/usr/share/esnet-smartnic/esnet-smartnic-top-ir.yaml',
               show_default=True,
               type=click.File('r'))
 @click.argument('register')
