@@ -146,16 +146,6 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
 
-        # Produce System Verilog package file to collect all header files under common namespace
-        t = env.get_template('reg_verif_pkg_sv.j2')
-        outfilename = Path(output_dir) / (prefix + 'reg_verif_pkg.sv')
-        with outfilename.open(mode='w') as f:
-            if prefix:
-                pkg_name = prefix.rstrip('_')
-            else:
-                pkg_name = 'local'
-            t.stream(blks = blks, pkg_name = pkg_name).dump(f)
-
     if 'c' in generators:
         # for c generators, produce all relevant dependent types
 
