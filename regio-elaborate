@@ -150,6 +150,15 @@ def elaborate_regs(regs_in):
         'init' : 0,
     }
 
+    if len(regs_in) == 0:
+        # always ensure that every block has at least 1 register so we never generate empty struct def'ns in C or C++
+        # make up a fake meta record that pads by a single byte which will auto-generate an anon register in this block
+        regs_in.append({
+            'meta': {
+                'pad_until': 1,
+            },
+        })
+
     reg_offset = 0
     regs = []
     synth_reg_cnt = 0
