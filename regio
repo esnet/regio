@@ -6,6 +6,7 @@ import mmap
 import sys
 import struct
 import os
+import re
 
 from yaml import load, dump
 try:
@@ -25,7 +26,7 @@ struct_width_map = {
 #       reads to a register, possibly triggering side effects due to the
 #       extra read.
 # See: https://stackoverflow.com/a/53492789
-def read_mem(mem, offset, reg):
+def build_reg_cast(mem, offset, reg):
     addr   = offset + reg['offset']
     width  = reg['width']
     access = reg['access']
@@ -36,30 +37,7 @@ def read_mem(mem, offset, reg):
     # Cast the memview to the correct width
     reg_cast  = reg_bytes.cast(struct_width_map[width])
 
-    # Read the value(s)
-    if count == 1:
-        # just return the value
-        return reg_cast[0]
-    else:
-        # return a list of values
-        return list(reg_cast[0:count])
-
-# Note: It is essential to use a memoryview here rather than relying on
-#       the struct module.  Using the struct module may result in extra
-#       writes to a register, possibly triggering side effects due to the
-#       extra writes.
-# See: https://stackoverflow.com/a/53492789
-def write_mem(mem, offset, reg, v):
-    addr   = offset + reg['offset']
-    width  = reg['width']
-    access = reg['access']
-
-    # Create a sub-memoryview of just the bytes we're interested in
-    reg_bytes = mem[addr:addr+(width>>3)]
-    # Cast the memview to the correct width
-    reg_cast  = reg_bytes.cast(struct_width_map[width])
-    # Write the value
-    reg_cast[0] = v
+    return reg_cast
 
 def update_field(reg_val, fld, fld_val):
     shift = fld['offset']
@@ -124,7 +102,42 @@ def main(select, bar, regmap, register):
     # Check if we have an assignment
     lhs, rhs, *_ = chain(register.split('='), repeat(None, 5))
 
-    blk_name, reg_name, fld_name, *_ = chain(lhs.split('.'), repeat(None, 5))
+    blk_name, reg_expr, fld_name, *_ = chain(lhs.split('.'), repeat(None, 5))
+
+    if reg_expr is not None:
+        # Check if we have an index or slice
+        matches = re.match(r'^(?P<reg_name>[^\[\]]+)'
+                           r'(\[(?P<index>[0-9]+)\]|'
+                           r'\[((?P<slice_min>[0-9]+)?:)?(?P<slice_max>[0-9]+)?(:(?P<slice_inc>[0-9]+)?)?\])?$', reg_expr)
+        if matches is None:
+            print("ERROR: Unable to parse requested register expression '{}'".format(reg_expr))
+            sys.exit(1)
+
+        reg_name  = matches.group('reg_name')
+        index     = matches.group('index')
+        slice_min = matches.group('slice_min')
+        slice_max = matches.group('slice_max')
+        slice_inc = matches.group('slice_inc')
+
+        # Convert any slice parameters to ints
+        if index is not None:
+            slice_min = int(index)
+            slice_max = int(index) + 1
+            slice_inc = 1
+        else:
+            if slice_min is not None:
+                slice_min = int(slice_min)
+            if slice_max is not None:
+                slice_max = int(slice_max)
+            if slice_inc is not None:
+                slice_inc = int(slice_inc)
+    else:
+        reg_name  = None
+        index     = None
+        slice_min = None
+        slice_max = None
+        slice_inc = None
+
     if blk_name is None:
         print("ERROR: No block name specified in {}".format(lhs))
         sys.exit(1)
@@ -210,15 +223,18 @@ def main(select, bar, regmap, register):
         #
         # Ready to do a write operation
         #
-        if fld is not None:
-            # Need to do a read + modify before writing the register back
-            curr_val = read_mem(mv, region['offset'], reg)
-            v = update_field(curr_val, fld, rhs)
-        else:
-            # Use the rhs value directly since we're doing an entire register write
-            v = rhs
+        reg_cast = build_reg_cast(mv, region['offset'], reg)
 
-        write_mem(mv, region['offset'], reg, v)
+        for reg_index in range(*slice(slice_min, slice_max, slice_inc).indices(len(reg_cast))):
+            if fld is not None:
+                # Need to do a read + modify before writing the register back
+                v = update_field(reg_cast[reg_index], fld, rhs)
+            else:
+                # Use the rhs value directly since we're doing an entire register write
+                v = rhs
+
+            # perform the write to the register
+            reg_cast[reg_index] = v
 
         sys.exit(0)
 
@@ -226,7 +242,7 @@ def main(select, bar, regmap, register):
     # We're just printing out blocks/registers/fields
     #
 
-    def print_fields(reg, v):
+    def print_fields(reg, v, only_fld):
         width_map = {
              8 : "02x",
             16 : "04x",
@@ -243,6 +259,8 @@ def main(select, bar, regmap, register):
 
         offset = reg['computed_width']
         for fld in reversed(reg['fields']):
+            if only_fld is not None and fld['name'] != only_fld['name']:
+                continue
             start = offset - 1
             end = offset - fld['width']
             reg_fmt = width_map[reg['width']]
@@ -255,18 +273,28 @@ def main(select, bar, regmap, register):
             print(f'              {v_masked:{reg_fmt}}  [{start:-2d}:{end:-2d}]  {v_f:{fld_fmt}}  {fld_name}')
             offset -= fld['width']
 
-    if reg_name is not None:
-        offset = region['offset'] + reg['offset']
-        v = read_mem(mv, region['offset'], reg)
-        if type(v) == list:
-            for i, v_one in enumerate(v):
-                print("    {: 8X}: {:08x}  {}[{:d}]".format(offset+(i*(reg['width']>>3)), v_one, reg_name, i))
-                if 'fields' in reg:
-                    print_fields(reg, v_one)
+    def print_reg(parent_base_addr, reg, reg_index, v, only_fld):
+        reg_base_addr = parent_base_addr + reg['offset']
+
+        if reg['count'] == 1:
+            # not an array, use format without an index notation
+            print("    {: 8X}: {:08x}  {}".format(reg_base_addr,
+                                                  v,
+                                                  reg['name']))
         else:
-            print("    {: 8X}: {:08x}  {}".format(offset, v, reg_name))
-            if 'fields' in reg:
-                print_fields(reg, v)
+            # is an array, include the index notation
+            print("    {: 8X}: {:08x}  {}[{:d}]".format(reg_base_addr+(reg_index*(reg['width']>>3)),
+                                                        v,
+                                                        reg['name'],
+                                                        reg_index))
+        if 'fields' in reg:
+            print_fields(reg, v, only_fld)
+
+    if reg_name is not None:
+        reg_cast = build_reg_cast(mv, region['offset'], reg)
+
+        for reg_index in range(*slice(slice_min, slice_max, slice_inc).indices(len(reg_cast))):
+            print_reg(region['offset'], reg, reg_index, reg_cast[reg_index], fld)
     else:
         # Print out all of the defined registers in the block
         print("[{}]".format(blk_name))
@@ -276,20 +304,14 @@ def main(select, bar, regmap, register):
 
             if reg['access'] == "none":
                 continue
-            if reg['access'] == "wo":
+            elif reg['access'] == "wo":
                 print("    {: 8x}: --------  {}".format(offset, reg['name']))
                 continue
-
-            v = read_mem(mv, region['offset'], reg)
-            if type(v) == list:
-                for i, v_one in enumerate(v):
-                    print("    {: 8X}: {:08x}  {}[{:d}]".format(offset+(i*(reg['width']>>3)), v_one, reg['name'], i))
-                    if 'fields' in reg:
-                        print_fields(reg, v_one)
             else:
-                print("    {: 8X}: {:08x}  {}".format(offset, v, reg['name']))
-                if 'fields' in reg:
-                    print_fields(reg, v)
+                reg_cast = build_reg_cast(mv, region['offset'], reg)
+
+                for reg_index in range(*slice(slice_min, slice_max, slice_inc).indices(len(reg_cast))):
+                    print_reg(region['offset'], reg, reg_index, reg_cast[reg_index], fld)
 
 if __name__ == "__main__":
     main(auto_envvar_prefix='REGIO')
