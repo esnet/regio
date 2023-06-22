@@ -62,6 +62,12 @@ enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
     {%- endfor %}
 {# blank #}
   {%- endif %}
+  {%- if reg.count and reg.count > 1: %}
+#define
+  {{- " {:50}".format(blk.name_upper ~ '_' ~ reg.name_upper ~ '_COUNT') }}
+  {{- "  {:d}".format(reg.count) }}
+  {%- endif %}
+{# blank #}
 {%- endfor %}
 
 struct {{ blk.name_lower }}_block {
