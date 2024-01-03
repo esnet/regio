@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import click
+import datetime
 from pathlib import Path
+import stat
+import sys
 
 from jinja2 import Template, Environment, FileSystemLoader
 
@@ -59,7 +62,7 @@ def get_decoder_tree(root):
               default=['sv', 'c'],
               show_default=True,
               multiple=True,
-              type=click.Choice(['sv', 'svh', 'c']))
+              type=click.Choice(['sv', 'svh', 'c', 'py']))
 @click.argument('yaml-file',
                 type=click.File('r'))
 def main(template_dir, output_dir, prefix, recursive, file_type, generators, yaml_file):
@@ -177,6 +180,32 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
             with outfilename.open(mode='w') as f:
                 t.stream(dec = dec, blks = dec_blks, ctypes=ctypes).dump(f)
 
+    if 'py' in generators:
+        # for Python generators, produce all relevant dependent types
+        cmdline = ' '.join(sys.argv)
+        now = str(datetime.datetime.utcnow()) + 'UTC'
+
+        # Produce all Python language output files
+        if top is not None:
+            t = env.get_template('toplevel_py.j2')
+            outfilename = Path(output_dir) / (prefix + top['name'] + '_toplevel.py')
+            with outfilename.open(mode='w') as f:
+                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+
+            t = env.get_template('regio_py.j2')
+            outfilename = Path(output_dir) / ('regio-' + prefix + top['name'])
+            with outfilename.open(mode='w') as f:
+                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+            outfilename.chmod(
+                stat.S_IRWXU |
+                stat.S_IRGRP | stat.S_IXGRP |
+                stat.S_IROTH | stat.S_IXOTH)
+
+        for _, blk in blks.items():
+            t = env.get_template('block_py.j2')
+            outfilename = Path(output_dir) / (prefix + blk['name'] + '_block.py')
+            with outfilename.open(mode='w') as f:
+                t.stream(cmdline = cmdline, now = now, blk = blk).dump(f)
 
 if __name__ == "__main__":
     main()
