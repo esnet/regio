@@ -13,7 +13,7 @@
 __all__ = ()
 
 import pathlib
-from regmap import *
+from regio.regmap import *
 {% for blk in blks.keys() | sort: %}
 from .blocks.{{ blk }}_block import *
 {%- endfor %}

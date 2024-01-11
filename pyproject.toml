@@ -1,9 +1,10 @@
 [tool.poetry]
-name = "regmap"
+name = "regio"
 version = "0.1.0"
-description = "Library for defining and programmatically accessing registers"
+description = "Library and tools for defining and programmatically accessing registers"
 authors = []
-packages = [{include = "regmap"}]
+packages = [{include = "regio", from = "src"}]
+include = ["src/regio/tools/templates"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -21,6 +22,13 @@ shells = [
     "ipython",
     "ptpython",
 ]
+
+[tool.poetry.scripts]
+regio = "regio.tools.io:main"
+regio-elaborate = "regio.tools.elaborate:main"
+regio-flatten = "regio.tools.flatten:main"
+regio-generate = "regio.tools.generate:main"
+regio-info = "regio.tools.info:main"
 
 [build-system]
 requires = ["poetry-core"]
