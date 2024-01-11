@@ -3,7 +3,6 @@
 import click
 import datetime
 from pathlib import Path
-import stat
 import sys
 
 from jinja2 import Template, Environment, FileSystemLoader
@@ -184,26 +183,55 @@ def main(template_dir, output_dir, prefix, recursive, file_type, generators, yam
         # for Python generators, produce all relevant dependent types
         cmdline = ' '.join(sys.argv)
         now = str(datetime.datetime.utcnow()) + 'UTC'
+        output_path = Path(output_dir)
 
         # Produce all Python language output files
         if top is not None:
+            # output_dir/
+            # \--python/
+            #    |-- pyproject.toml
+            #    \-- regmap_<top.name>/
+            #        |-- __init__.py
+            #        |-- toplevel.py
+            #        |-- regio.py
+            #        \-- blocks/
+            #            |-- __init__.py
+            #            |-- block_0.py
+            #            :
+            #            \-- block_N.py
+            output_path /= 'python'
+            output_path.mkdir()
+
+            t = env.get_template('pyproject_toml.j2')
+            outfilename = output_path / 'pyproject.toml'
+            with outfilename.open(mode='w') as f:
+                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+
+            output_path /= ('regmap_' + top['name'])
+            output_path.mkdir()
+
+            outfilename = output_path / '__init__.py'
+            with outfilename.open(mode='w') as f: ...
+
             t = env.get_template('toplevel_py.j2')
-            outfilename = Path(output_dir) / (prefix + top['name'] + '_toplevel.py')
+            outfilename = output_path / 'toplevel.py'
             with outfilename.open(mode='w') as f:
                 t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
 
             t = env.get_template('regio_py.j2')
-            outfilename = Path(output_dir) / ('regio-' + prefix + top['name'])
+            outfilename = output_path / 'regio.py'
             with outfilename.open(mode='w') as f:
                 t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
-            outfilename.chmod(
-                stat.S_IRWXU |
-                stat.S_IRGRP | stat.S_IXGRP |
-                stat.S_IROTH | stat.S_IXOTH)
+
+            output_path /= 'blocks'
+            output_path.mkdir()
+
+            outfilename = output_path / '__init__.py'
+            with outfilename.open(mode='w') as f: ...
 
         for _, blk in blks.items():
             t = env.get_template('block_py.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_block.py')
+            outfilename = output_path / (blk['name'] + '_block.py')
             with outfilename.open(mode='w') as f:
                 t.stream(cmdline = cmdline, now = now, blk = blk).dump(f)
 

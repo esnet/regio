@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "regmap_{{ top.name }}"
+version = "0.1.0"
+description = "Register map definitions for the {{ top.name }} device"
+authors = []
+
+[tool.poetry.dependencies]
+python = "^3.8"
+click = "^8.1.7"
+regmap = "^0.1.0"
+
+[tool.poetry.scripts]
+regio-{{ top.name | replace('_', '-') }} = "regmap_{{ top.name }}.regio:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+

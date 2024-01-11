@@ -15,7 +15,7 @@ __all__ = ()
 import pathlib
 from regmap import *
 {% for blk in blks.keys() | sort: %}
-from {{ blk }}_block import *
+from .blocks.{{ blk }}_block import *
 {%- endfor %}
 
 BAR_INFO = {}

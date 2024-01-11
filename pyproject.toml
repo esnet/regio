@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "regmap"
+version = "0.1.0"
+description = "Library for defining and programmatically accessing registers"
+authors = []
+packages = [{include = "regmap"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+click = "^8.1.7"
+Jinja2 = "^3.1.2"
+PyYAML = "^6.0.1"
+pyyaml-include = "^1.3.2"
+
+# Optional packages for supporting interactive shells.
+ipython = {version = "^8.12.3", optional = true}
+ptpython = {version = "^3.0.25", optional = true}
+
+[tool.poetry.extras]
+shells = [
+    "ipython",
+    "ptpython",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
