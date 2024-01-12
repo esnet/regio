@@ -8,7 +8,8 @@ import pathlib
 import sys
 
 try:
-    import click
+    import click, click.shell_completion
+    import jedi
 except ImportError:
     click = None
 
@@ -251,6 +252,22 @@ class ClickEnvironment(Environment):
             raise NotImplementedError('Missing click module.')
         self._add_click_commands(parent)
 
+    def _eval_expr_complete(self, ctx, param, incomplete):
+        # Run the main command to load the regmap and insert variables into the environment.
+        # Note that this completion is current slowed due to the lack of caching of the regmap
+        # specification. Instantiating the entire specification repeatedly is time consuming and
+        # could be improved.
+        main = ctx.find_root()
+        kargs = dict(main.params)
+        kargs['test_io'] = 'zero'
+        main.invoke(main.command, **kargs)
+
+        interp = jedi.Interpreter(incomplete, [self._namespace])
+        return [
+            click.shell_completion.CompletionItem(incomplete + compl.complete)
+            for compl in interp.complete()
+        ]
+
     def _add_click_commands(self, parent):
         @parent.command()
         def dump():
@@ -260,7 +277,7 @@ class ClickEnvironment(Environment):
             self.dump()
 
         @parent.command()
-        @click.argument('expressions', nargs=-1)
+        @click.argument('expressions', nargs=-1, shell_complete=self._eval_expr_complete)
         def eval(expressions):
             '''
             Evaluate a sequence of Python expressions within the context of the loaded register
@@ -269,7 +286,7 @@ class ClickEnvironment(Environment):
             self.eval(expressions)
 
         @parent.command()
-        @click.argument('path')
+        @click.argument('path', type=click.Path(exists=True, dir_okay=False, resolve_path=True))
         @click.argument('arguments', nargs=-1)
         def script(path, arguments):
             '''
@@ -314,3 +331,47 @@ class ClickEnvironment(Environment):
                 Enter the Prompt Toolkit IPython shell.
                 '''
                 self.ptipython_shell()
+
+        @parent.group()
+        def completions():
+            '''
+            Generate shell completion scripts.
+            '''
+
+        @completions.command()
+        @click.pass_context
+        def bash(ctx):
+            # TODO: Update help strings with commands to setup completion in current shell.
+            # https://click.palletsprojects.com/en/8.1.x/shell-completion/
+            '''
+            Generate a completion script for the Bourne Again SHell.
+            '''
+            self._print_completion(ctx, 'bash')
+
+        @completions.command()
+        @click.pass_context
+        def fish(ctx):
+            '''
+            Generate a completion script for the Friendly Interactive SHell.
+            '''
+            self._print_completion(ctx, 'fish')
+
+        @completions.command()
+        @click.pass_context
+        def zsh(ctx):
+            '''
+            Generate a Z SHell completion script.
+            '''
+            self._print_completion(ctx, 'zsh')
+
+    def _print_completion(self, ctx, shell):
+        prog = ctx.find_root().info_name
+        var = prog.replace('-', '_').upper()
+
+        # https://click.palletsprojects.com/en/8.1.x/shell-completion/#enabling-completion
+        import subprocess
+        output = subprocess.run(
+            (shell, '-c', f'_{var}_COMPLETE={shell}_source {prog}'),
+            stdout=subprocess.PIPE,
+        )
+        click.echo(output.stdout.decode())
