@@ -109,12 +109,26 @@ class Environment:
             for p in reversed(v._proxies.values()):
                 proxy.stop_io(p)
 
-    def dump(self):
-        # Perform a verbose dump of all proxies.
+    def dump(self, paths):
+        if paths:
+            # Break up the selected paths into their components.
+            paths = [p.split('.') for p in paths]
+        else:
+            # Select all proxies attached to the environment variables.
+            paths = [[vn, pn] for vn, v in self._variables.items() for pn in v._proxies]
+
+        # Perform a verbose dump of the selected proxies.
         with self:
-            for vn, v in self._variables.items():
-                for pn, p in v._proxies.items():
-                    print(p(...))
+            for names in paths:
+                # Lookup the object.
+                obj = self._mod
+                while names:
+                    obj = getattr(obj, names.pop(0))
+
+                # Display the object.
+                if isinstance(obj, proxy.Proxy):
+                    obj = obj(...)
+                print(obj)
 
     def eval(self, expressions):
         with self:
@@ -274,11 +288,13 @@ class ClickEnvironment(Environment):
 
     def _add_click_commands(self, parent):
         @parent.command()
-        def dump():
+        @click.argument('object-paths', nargs=-1)
+        def dump(object_paths):
             '''
-            Read and display all registers from all register map specifications.
+            Read and display selected sub-tree(s) from loaded register map specifications. Without
+            any object path arguments, the top-level of all loaded register maps will be displayed.
             '''
-            self.dump()
+            self.dump(object_paths)
 
         @parent.command()
         @click.argument('expressions', nargs=-1, shell_complete=self._eval_expr_complete)
