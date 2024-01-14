@@ -6,10 +6,11 @@ from ..spec import address, array, field, register, structure, union
 
 #---------------------------------------------------------------------------------------------------
 class Variable:
-    def __init__(self, node, ctx, initializer=None, *pargs, **kargs):
+    def __init__(self, node, ctx, chain, initializer=None, *pargs, **kargs):
         super().__init__()
 
         self._node = node
+        self._chain = chain
         self._pargs = tuple(pargs)
         self._kargs = dict(kargs)
 
@@ -29,7 +30,7 @@ class Variable:
             self.load(initializer)
 
         # Setup a proxy for the variable on the initialized context.
-        self.proxy = self._context.new_proxy(node)
+        self.proxy = self._context.new_proxy(node, chain)
 
     def load(self, initializer=None):
         # Pass the default value down to the IO buffer for use during buffered reads.
@@ -42,19 +43,30 @@ class Variable:
         if initializer is not None:
             raise ValueError(f'Unknown initializer {initializer!r}. Must be None or an int.')
 
+        # The variable was created on a singular node, load all registers in it's hierarchy.
+        if not self._chain.is_group:
+            self._load_node(self._node)
+            return
+
+        # The variable was created on a node group, load all registers in the hierarchy of every
+        # node in the group.
+        for node in self._chain:
+            self._load_node(node)
+
+    def _load_node(self, node):
         # Perform low-level IO to read all registers.
         load_region = self._context.io.load_region
 
-        # The variable's node is itself a register.
-        if self._node.region.register is not None:
-            load_region(self._node.region)
+        # The node is itself a register.
+        if node.region.register is not None:
+            load_region(node.region)
             return
 
-        # The variable is a container, so load all nested registers.
+        # The node is a container, so load all registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
-        for node in self._node.descendants:
-            if node.region.register is not None:
-                load_region(node.region)
+        for child in node.descendants:
+            if child.region.register is not None:
+                load_region(child.region)
 
     def store(self, initializer=None):
         # Write all buffered data.
@@ -67,19 +79,30 @@ class Variable:
         if not isinstance(initializer, int):
             raise ValueError(f'Unknown initializer {initializer!r}. Must be None or an int.')
 
+        # The variable was created on a singular node, store all registers in it's hierarchy.
+        if not self._chain.is_group:
+            self._store_node(self._node, initializer)
+            return
+
+        # The variable was created on a node group, store all registers in the hierarchy of every
+        # node in the group.
+        for node in self._chain:
+            self._store_node(node, initializer)
+
+    def _store_node(self, node, initializer):
         # Perform low-level IO to write all registers.
         store_region = self._context.io.store_region
 
-        # The variable's node is itself a register.
-        if self._node.region.register is not None:
-            store_region(self._node.region, initializer)
+        # The node is itself a register.
+        if node.region.register is not None:
+            store_region(node.region, initializer)
             return
 
-        # The variable is a container, so store all nested registers.
+        # The node is a container, so store all registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
-        for node in self._node.descendants:
-            if node.region.register is not None:
-                store_region(node.region, initializer)
+        for child in node.descendants:
+            if child.region.register is not None:
+                store_region(child.region, initializer)
 
     def sync(self):
         self._context.io.sync()
@@ -140,17 +163,30 @@ class Variable:
         if helper.qualstem is not None:
             units['qualname'] = f'({helper.qualstem} => {helper.qualroot})'
 
-        # Add data for the heading labels and the variable.
+        # Add formatting data for the heading labels and the variable.
         row_data = [
             update_widths(headings),
             update_widths(units),
-            update_widths(self._format_node(helper)),
         ]
 
-        # Gather data for each node in the variable's sub-tree.
-        for node in self._node.descendants:
-            var = self._context.new_variable(node, ...)
+        # Determine the set of nodes to be formatted.
+        if self._chain.is_group:
+            # The variable was created on a node group.
+            nodes = self._chain
+        else:
+            # The variable was created on a singular node.
+            nodes = (self._node,)
+
+        # Gather formatting data for all nodes in the variable's hierarchy.
+        for node in nodes:
+            # Format the node.
+            var = self if node is self._node else self._context.new_variable(node, None, ...)
             row_data.append(update_widths(var._format_node(helper)))
+
+            # Gather formatting data for each child node in the hierarchy.
+            for child in node.descendants:
+                var = self._context.new_variable(child, None, ...)
+                row_data.append(update_widths(var._format_node(helper)))
 
         # Generate a string for each row.
         width = 0
@@ -172,6 +208,7 @@ class Variable:
 class FormatHelper:
     def __init__(self, var):
         self.root = var._node
+        self.is_group = var._chain.is_group
 
         # Figure out how to display the qualified names of all the nodes.
         self.abspath = False
@@ -198,7 +235,7 @@ class FormatHelper:
         return self.qualstem + ('.' + qualname if qualname else '')
 
     def rel_qualname(self, node):
-        if node is self.root:
+        if not self.is_group and node is self.root:
             return f'. [=> {self.abs_qualname(node)}]'
         return '.' + node.qualname_from(len(self.root.path))
 
