@@ -10,8 +10,8 @@ class Variable:
         super().__init__()
 
         self._node = node
-        self._pargs = pargs
-        self._kargs = kargs
+        self._pargs = tuple(pargs)
+        self._kargs = dict(kargs)
 
         # New variables are created either by using the context directly (by reference) or on a
         # buffered copy of it (by value).
@@ -95,10 +95,10 @@ class Variable:
             'type': 'Type',
             'size': 'Size',
             'offset': 'Offset',
-            'qualname': 'Path',
             'range': 'Range',
             'value_hex': 'Value',
             'value_bits': 'Value',
+            'qualname': 'Path',
         }
         fmt = '{type:>{wtype}}'
         fmt += ' | {size:>{wsize}}'
@@ -136,6 +136,10 @@ class Variable:
             'value_bits': '(Bits)',
         }
 
+        # Insert the mapping between the stem and root names into the header.
+        if helper.qualstem is not None:
+            units['qualname'] = f'({helper.qualstem} => {helper.qualroot})'
+
         # Add data for the heading labels and the variable.
         row_data = [
             update_widths(headings),
@@ -167,14 +171,19 @@ class Variable:
 #---------------------------------------------------------------------------------------------------
 class FormatHelper:
     def __init__(self, var):
+        self.root = var._node
+
         # Figure out how to display the qualified names of all the nodes.
-        for kargs in (var._kargs, var._context.kargs):
-            base = kargs.get('qualname_base')
-            if base is not None:
-                self.qualname_stem, self.qualname_start = base
-                break
-        else:
-            self.qualname_stem, self.qualname_start = None, 0
+        self.abspath = False
+        self.qualstem, self.qualroot, self.qualstart = None, None, 0
+        for kargs in (var._context.kargs, var._kargs):
+            abspath = kargs.get('abspath')
+            if abspath is not None:
+                self.abspath = abspath
+
+            qualbase = kargs.get('qualbase')
+            if qualbase is not None:
+                self.qualstem, self.qualroot, self.qualstart = qualbase
 
         # Determine the maximum number of nibbles for consistent offset display.
         region = var._node.region
@@ -182,13 +191,19 @@ class FormatHelper:
         self.offset_scale = region.data_width // 8 # TODO: Get from low-level IO.
         self.offset_nibbles = ((region.size * self.offset_scale).bit_length() + 4 - 1) // 4
 
-    def qualname(self, node):
-        qualname = node.qualname_from(self.qualname_start)
-        if self.qualname_stem is None:
+    def abs_qualname(self, node):
+        qualname = node.qualname_from(self.qualstart)
+        if self.qualstem is None:
             return qualname
-        if not qualname:
-            return self.qualname_stem + f' [=> {node.qualname}]'
-        return self.qualname_stem + '.' + qualname
+        return self.qualstem + ('.' + qualname if qualname else '')
+
+    def rel_qualname(self, node):
+        if node is self.root:
+            return f'. [=> {self.abs_qualname(node)}]'
+        return '.' + node.qualname_from(len(self.root.path))
+
+    def qualname(self, node):
+        return self.abs_qualname(node) if self.abspath else self.rel_qualname(node)
 
     def size(self, value):
         value *= self.offset_scale

@@ -45,15 +45,19 @@ class EnvironmentVariable:
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
         if isinstance(value, PROXY_TYPES) and value not in self._proxies.values():
-            value.___context___.kargs['qualname_base'] = (
-                self._name + '.' + name, len(value.___node___.path))
+            kargs = value.___context___.kargs
+            kargs['qualbase'] = (
+                self._name + '.' + name, # qualstem
+                value.___node___.qualname, # qualroot
+                len(value.___node___.path), # qualstart
+            )
             self._proxies[name] = value
 
     def __delattr__(self, name):
         value = getattr(self, name, None)
         super().__delattr__(name)
         if name in self._proxies:
-            del value.___context___.kargs['qualname_base']
+            del value.___context___.kargs['qualbase']
             del self._proxies[name]
 
 #---------------------------------------------------------------------------------------------------

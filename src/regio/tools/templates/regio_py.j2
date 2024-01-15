@@ -35,7 +35,7 @@ IO_TYPES = {
 @click.group(invoke_without_command=True)
 @click.option(
     '-p', '--pci-id', 'pci_ids',
-    help='Select PCIe device ID(s) to use for IO (domain:bus:device.function)',
+    help='Select PCIe device ID(s) to use for IO (domain:bus:device.function).',
     type=click.Choice(('all',) + PCI_IDS),
     default=(PCI_IDS[0],),
     show_default=True,
@@ -43,7 +43,7 @@ IO_TYPES = {
 )
 @click.option(
     '-b', '--bar-id', 'bar_ids',
-    help='Select which PCIe BAR(s) to use map into memory for IO',
+    help='Select which PCIe BAR(s) to use map into memory for IO.',
     type=click.Choice(('all',) + BAR_IDS),
     default=('2',), # TODO: Shouldn't be hardcoded. Get from YAML?
     show_default=True,
@@ -51,11 +51,18 @@ IO_TYPES = {
 )
 @click.option(
     '-t', '--test-io',
-    help='Run in test mode using an alternate IO type independent of hardware',
+    help='Run in test mode using an alternate IO type independent of hardware.',
     type=click.Choice(tuple(sorted(IO_TYPES))),
 )
+@click.option(
+    '--abspath',
+    help='Include all components when displaying regmap object paths. Default behaviour is to '
+         'print paths relative to the selected object.',
+    is_flag=True,
+    default=False,
+)
 @click.pass_context
-def click_main(ctx, pci_ids, bar_ids, test_io):
+def click_main(ctx, pci_ids, bar_ids, test_io, abspath):
     '''
     Perform I/O operations on a PCI device using the {{ top.name }} register mapping.
     Acceptable PCI devices must have vendor ID 0x{{ '{:04x}'.format(top.pci_vendor) }} and device ID 0x{{ '{:04x}'.format(top.pci_device) }}.
@@ -74,6 +81,11 @@ def click_main(ctx, pci_ids, bar_ids, test_io):
     for bid in bar_ids:
         specs[bid] = BAR_INFO[bid]['spec_cls']()
 
+    # Build a set of keyword arguments to configure the proxy.
+    kargs = {
+        'abspath': abspath,
+    }
+
     # Create the proxies for each selected PCI device and BAR ID combinations.
     env = ctx.obj
     for i, pid in enumerate(pci_ids):
@@ -84,7 +96,7 @@ def click_main(ctx, pci_ids, bar_ids, test_io):
         # Create the proxy on the BAR(s).
         for bid in bar_ids:
             io = None if io_type is None else io_type(specs[bid], pid, bid)
-            setattr(dev, f'bar{bid}', BAR_INFO[bid]['new_proxy'](pid, specs[bid], io))
+            setattr(dev, f'bar{bid}', BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **kargs))
 
     # A sub-command wasn't specified, so default to dumping all registers in the environment.
     if ctx.invoked_subcommand is None:

@@ -47,8 +47,8 @@ class {{ class_name }}(AddressSpace, data_width={{ data_width }}, pad_to={{ bar.
         {%- endif %}
     {%- endfor %}
 
-def {{ class_name }}_new_proxy(pci_id, spec=None, io=None):
-    return _new_proxy(pci_id, {{ barid }}, {{ class_name }}, spec, io)
+def {{ class_name }}_new_proxy(pci_id, spec=None, io=None, *pargs, **kargs):
+    return _new_proxy(pci_id, {{ barid }}, {{ class_name }}, spec, io, *pargs, **kargs)
 
 BAR_INFO.update({
     '{{ barid }}': {
@@ -80,7 +80,7 @@ def pci_device_ids():
 __all__ += ('pci_device_ids',)
 
 #---------------------------------------------------------------------------------------------------
-def _new_proxy(pci_id, bar_id, spec_cls, spec=None, io=None):
+def _new_proxy(pci_id, bar_id, spec_cls, spec=None, io=None, *pargs, **kargs):
     # Instantiate the regmap specification.
     if spec is None:
         spec = spec_cls()
@@ -92,5 +92,5 @@ def _new_proxy(pci_id, bar_id, spec_cls, spec=None, io=None):
         io = DevMmapIOForSpec(spec, PCI_DEVICES_DIR / pci_id / f'resource{bar_id}')
 
     # Create the proxy.
-    return for_io_by_path(spec, io)
+    return for_io_by_path(spec, io, *pargs, **kargs)
 

@@ -23,8 +23,8 @@ class Context:
         super().__init__()
 
         self.types = types
-        self.pargs = pargs
-        self.kargs = kargs
+        self.pargs = tuple(pargs)
+        self.kargs = dict(kargs)
 
     def copy(self, *pargs, **kargs):
         return type(self)(*pargs, self.types, tuple(self.pargs), dict(self.kargs), **kargs)
