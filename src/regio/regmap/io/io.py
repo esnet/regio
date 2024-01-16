@@ -41,30 +41,27 @@ class IO:
     def stop(self):
         self.started = False
 
-    # TODO: pass size for multi-word read
-    def read(self, offset):
+    def read(self, offset, size):
         raise NotImplementedError
 
-    # TODO: pass size for multi-word write
-    def write(self, offset, value):
+    def write(self, offset, size, value):
         raise NotImplementedError
 
-    # TODO: pass size for multi-word update
-    def update(self, offset, clr_mask, set_mask):
-        value = self.read(offset)
+    def update(self, offset, size, clr_mask, set_mask):
+        value = self.read(offset, size)
         value &= clr_mask
         value |= set_mask
-        self.write(offset, value)
+        self.write(offset, size, value)
 
     def read_region(self, region):
-        return (self.read(region.offset.absolute) >> region.shift) & region.mask
+        return (self.read(region.offset.absolute, region.size) >> region.shift) & region.mask
 
     def write_region(self, region, value):
-        self.write(region.offset.absolute, (value & region.mask) << region.shift)
+        self.write(region.offset.absolute, region.size, (value & region.mask) << region.shift)
 
     def update_region(self, region, value):
         mask = region.mask << region.shift
-        self.update(region.offset.absolute, ~mask, (value << region.shift) & mask)
+        self.update(region.offset.absolute, region.size, ~mask, (value << region.shift) & mask)
 
 #---------------------------------------------------------------------------------------------------
 class IOBuffer(dict):
@@ -87,33 +84,36 @@ class BufferedIO(IO):
     def stop(self):
         self.llio.stop()
 
-    def read(self, offset):
-        value = self.buffer.get(offset, self.default)
-        if value is None:
-            value = self.load(offset)
+    def read(self, offset, size):
+        value = self.buffer.get(offset)
+        if value is not None:
+            return value[1]
+
+        if self.default is None:
+            return self.load(offset, size)
+        return self.default
+
+    def write(self, offset, size, value):
+        self.buffer[offset] = (size, value)
+
+    def load(self, offset, size):
+        value = self.llio.read(offset, size)
+        self.buffer[offset] = (size, value)
         return value
 
-    def write(self, offset, value):
-        self.buffer[offset] = value
-
-    def load(self, offset):
-        value = self.llio.read(offset)
-        self.buffer[offset] = value
-        return value
-
-    def store(self, offset, value):
-        self.buffer[offset] = value
-        self.llio.write(offset, value)
+    def store(self, offset, size, value):
+        self.buffer[offset] = (size, value)
+        self.llio.write(offset, size, value)
 
     def load_region(self, region):
-        return self.load(region.offset.absolute)
+        return self.load(region.offset.absolute, region.size)
 
     def store_region(self, region, value):
-        self.store(region.offset.absolute, value)
+        self.store(region.offset.absolute, region.size, value)
 
     def sync(self):
         for offset, value in self.buffer.sorted():
-            self.store(offset, value)
+            self.store(offset, value[0], value[1])
 
     def drop(self):
         self.buffer.clear()
@@ -124,17 +124,18 @@ class BufferedIO(IO):
 
 #---------------------------------------------------------------------------------------------------
 class ZeroIO(IO):
-    def read(self, offset):
-        return 0
-
-    def write(self, offset, value): ...
-    def update(self, offset, clr_mask, set_mask): ...
+    def read(self, offset, size): return 0
+    def write(self, offset, size, value): ...
+    def update(self, offset, size, clr_mask, set_mask): ...
 
 #---------------------------------------------------------------------------------------------------
 class ListIO(IO):
-    def __init__(self, size, *pargs, **kargs):
+    def __init__(self, size, data_width, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
+
         self.size = size
+        self.data_width = data_width
+        self.data_mask = (1 << data_width) - 1
 
     def start(self):
         if not self.started:
@@ -146,11 +147,22 @@ class ListIO(IO):
             del self._words
             super().stop()
 
-    def read(self, offset):
-        return self._words[offset]
+    def read(self, offset, size):
+        value = 0
+        offset += size
+        while size > 0:
+            offset -= 1
+            size -= 1
+            value <<= self.data_width
+            value |= self._words[offset] & self.data_mask
+        return value
 
-    def write(self, offset, value):
-        self._words[offset] = value
+    def write(self, offset, size, value):
+        while size > 0:
+            self._words[offset] = value & self.data_mask
+            value >>= self.data_width
+            offset += 1
+            size -= 1
 
 #---------------------------------------------------------------------------------------------------
 class ListIOForSpec(ListIO):
@@ -169,8 +181,8 @@ class DictIO(IO):
             del self._words
             super().stop()
 
-    def read(self, offset):
+    def read(self, offset, size):
         return self._words.get(offset, 0)
 
-    def write(self, offset, value):
+    def write(self, offset, size, value):
         self._words[offset] = value

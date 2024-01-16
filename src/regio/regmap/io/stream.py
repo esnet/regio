@@ -3,38 +3,20 @@ __all__ = ()
 
 import os
 import pathlib
-import struct
 
 from . import io
 from ..spec import info
 
 #---------------------------------------------------------------------------------------------------
 class StreamIO(io.IO):
-    # https://docs.python.org/3/library/struct.html#format-strings
-    STRUCT_FORMATS = {
-        'endian': {
-            io.Endian.LITTLE: '<',
-            io.Endian.BIG: '>',
-        },
-        'width': {
-            8: 'B',
-            16: 'H',
-            32: 'L',
-            64: 'Q',
-        },
-    }
-
     def __init__(self, data_width, endian=io.Endian.NATIVE, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
 
         if data_width % 8 != 0:
             raise ValueError(f'Data width {data_width} must be a multiple of 8 bits.')
-        self.octets = data_width // 8
 
-        # Construct a struct object for packing/unpacking values to/from a byte stream.
-        self._struct = struct.Struct(
-            self.STRUCT_FORMATS['endian'][endian.get()] +
-            self.STRUCT_FORMATS['width'][data_width])
+        self.octets = data_width // 8
+        self.byteorder = endian.get().name.lower()
 
     def stream_open(self):
         raise NotImplementedError
@@ -53,13 +35,15 @@ class StreamIO(io.IO):
             del self._stream
             super().stop()
 
-    def read(self, offset):
+    def read(self, offset, size):
         self.stream_seek(offset)
-        return self._struct.unpack(self._stream.read(self.octets))[0]
+        value = self._stream.read(size * self.octets)
+        return int.from_bytes(value, self.byteorder)
 
-    def write(self, offset, value):
+    def write(self, offset, size, value):
         self.stream_seek(offset)
-        self._stream.write(self._struct.pack(value))
+        value = value.to_bytes(size * self.octets, self.byteorder)
+        self._stream.write(value)
 
 #---------------------------------------------------------------------------------------------------
 class FileStreamIO(StreamIO):

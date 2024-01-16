@@ -4,6 +4,7 @@ __all__ = ()
 import mmap
 import os
 import pathlib
+import struct
 
 from . import ffi
 from . import io
@@ -12,19 +13,19 @@ from ..spec import info
 #---------------------------------------------------------------------------------------------------
 class MmapIO(io.IO):
     WORD_CTYPES = {
-        8: {
+        1: {
             io.Endian.LITTLE: ffi.ctype.integer.u8.le,
             io.Endian.BIG: ffi.ctype.integer.u8.be,
         },
-        16: {
+        2: {
             io.Endian.LITTLE: ffi.ctype.integer.u16.le,
             io.Endian.BIG: ffi.ctype.integer.u16.be,
         },
-        32: {
+        4: {
             io.Endian.LITTLE: ffi.ctype.integer.u32.le,
             io.Endian.BIG: ffi.ctype.integer.u32.be,
         },
-        64: {
+        8: {
             io.Endian.LITTLE: ffi.ctype.integer.u64.le,
             io.Endian.BIG: ffi.ctype.integer.u64.be,
         },
@@ -37,12 +38,17 @@ class MmapIO(io.IO):
 
         if data_width % 8 != 0:
             raise ValueError(f'Data width {data_width} must be a multiple of 8 bits.')
-        self.octets = data_width // 8
 
-        if offset % self.octets != 0:
+        octets = data_width // 8
+        if octets not in self.WORD_CTYPES:
+            raise ValueError(f'Missing C type for data width of {data_width} bits.')
+
+        if offset % octets != 0:
             raise ValueError(
-                f'Offset 0x{offset:x} must be aligned to word size of {self.octets} bytes.')
+                f'Offset 0x{offset:x} must be aligned to word size of {octets} bytes.')
+        self.octets = octets
 
+        # Setup the information needed for mapping the memory region.
         if not isinstance(path, pathlib.Path):
             path = pathlib.Path(path)
         self.path = path
@@ -54,8 +60,22 @@ class MmapIO(io.IO):
         self.page_offset = offset % mmap.PAGESIZE
         self.mmap_size = mmap_size - self.page_no * mmap.PAGESIZE
 
-        # Get the C type for a data word.
-        self._word_ctype = self.WORD_CTYPES[data_width][endian.get()]
+        # Get the C type for accessing a single data word.
+        endian = endian.get()
+        self._word_ctype = self.WORD_CTYPES[octets][endian]
+
+        # Get the largest valid C type for accessing words in bulk.
+        psize = struct.calcsize('P') # Size in bytes of C pointer.
+        if psize > octets and psize in self.WORD_CTYPES:
+            self._bulk_ctype = self.WORD_CTYPES[psize][endian]
+        else:
+            self._bulk_ctype = self._word_ctype
+
+        self.word_width = data_width
+        self.word_mask = (1 << data_width) - 1
+        self.bulk_width = psize * 8
+        self.bulk_mask = (1 << self.bulk_width) - 1
+        self.bulk_size = self.bulk_width // data_width
 
     def start(self):
         if self.started:
@@ -83,52 +103,85 @@ class MmapIO(io.IO):
 
 #---------------------------------------------------------------------------------------------------
 class MmapIndirectIO(MmapIO):
-    def read(self, offset):
-        return ffi.ctype.read(self._word_ctype, self._base_addr + offset * self.octets)
-
-    def write(self, offset, value):
-        ffi.ctype.write(self._word_ctype, self._base_addr + offset * self.octets, value)
-
-    def update(self, offset, clr_mask, set_mask):
-        ffi.ctype.update(
-            self._word_ctype, self._base_addr + offset * self.octets, clr_mask, set_mask)
-
-#---------------------------------------------------------------------------------------------------
-class MmapDirectIO(MmapIO):
     def start(self):
         if not self.started:
             # Setup the mapping.
             super().start()
 
             # Create a ctypes pointer to an array of words for the entire mapping.
-            self._ptr = ffi.ctype.cast_to_pointer(self._base_addr, self._word_ctype)
+            self._word_ptr = ffi.ctype.cast_to_pointer(self._base_addr, self._word_ctype)
+            self._bulk_ptr = ffi.ctype.cast_to_pointer(self._base_addr, self._bulk_ctype)
 
     def stop(self):
         if self.started:
-            del self._ptr
+            del self._word_ptr
+            del self._bulk_ptr
             super().stop()
 
-    def read(self, offset):
-        return self._ptr[offset].value
+    def _operations(self, offset, size):
+        # Single word access.
+        if size < self.bulk_size:
+            return [(self._word_ptr, offset, size, self.word_width, self.word_mask)]
 
-    def write(self, offset, value):
-        self._ptr[offset].value = value
+        # Multi word access. Split the access to minimize operations while respecting alignment.
+        ops = []
+        count = offset % self.bulk_size
+        if count != 0:
+            ops.append((self._word_ptr, offset, count, self.word_width, self.word_mask))
+            offset += count
+            size -= count
 
-    def update(self, offset, clr_mask, set_mask):
-        ptr = self._ptr[offset]
-        value = ptr.value
-        value &= clr_mask
-        value |= set_mask
-        ptr.value = value
+        if size >= self.bulk_size:
+            bulk_offset = offset // self.bulk_size
+            bulk_count = size // self.bulk_size
+            ops.append((self._bulk_ptr, bulk_offset, bulk_count, self.bulk_width, self.bulk_mask))
+
+            count = bulk_count * self.bulk_size
+            offset += count
+            size -= count
+
+        if size > 0:
+            ops.append((self._word_ptr, offset, size, self.word_width, self.word_mask))
+        return ops
+
+    def read(self, offset, size):
+        value = 0
+        shift = 0
+        for ptr, offset, count, width, mask in self._operations(offset, size):
+            while count > 0:
+                value |= (ptr[offset].value & mask) << shift
+                shift += width
+                count -= 1
+        return value
+
+    def write(self, offset, size, value):
+        for ptr, offset, count, width, mask in self._operations(offset, size):
+            while count > 0:
+                ptr[offset].value = value & mask
+                value >>= width
+                count -= 1
+
+    def update(self, offset, size, clr_mask, set_mask):
+        for ptr, offset, count, width, mask in self._operations(offset, size):
+            while count > 0:
+                p = ptr[offset]
+                value = p.value
+                value &= clr_mask & mask
+                value |= set_mask & mask
+                p.value = value
+
+                clr_mask >>= width
+                set_mask >>= width
+                count -= 1
 
 #---------------------------------------------------------------------------------------------------
-class DevMmapIO(MmapDirectIO): ...
+class DevMmapIO(MmapIndirectIO): ...
 class DevMmapIOForSpec(DevMmapIO):
     def __init__(self, spec, path, *pargs, **kargs):
         super().__init__(path, info.data_width_of(spec), *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
-class FileMmapIO(MmapDirectIO):
+class FileMmapIO(MmapIndirectIO):
     def __init__(self, path, file_size, *pargs, **kargs):
         super().__init__(path, *pargs, mmap_size=file_size, **kargs)
         self.file_size = file_size
