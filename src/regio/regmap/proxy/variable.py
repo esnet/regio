@@ -113,120 +113,51 @@ class Variable:
     def flush(self):
         self._context.io.flush()
 
+    def config_get(self, key, default=None):
+        for kargs in (self._kargs, self._context.kargs):
+            value = kargs.get(key)
+            if value is not None:
+                return value
+        return default
+
     def __str__(self):
-        headings = {
-            'type': 'Type',
-            'size': 'Size',
-            'offset': 'Offset',
-            'range': 'Range',
-            'value_hex': 'Value',
-            'value_bits': 'Value',
-            'qualname': 'Path',
-        }
-        fmt = '{type:>{wtype}}'
-        fmt += ' | {size:>{wsize}}'
-        fmt += ' | {offset:>{woffset}}'
-        fmt += ' | {range:^{wrange}}'
-        fmt += '{value_hex:<{wvalue_hex}}'
-        fmt += ' : {value_bits:<{wvalue_bits}}'
-        fmt += ' | {qualname:<{wqualname}}'
-
-        widths = {}
-        hnames = set(headings)
-        def update_widths(data):
-            k = 'value_hex'
-            if k in data:
-                data[k] = ' = ' + data[k]
-
-            k = 'value_bits'
-            if k in data:
-                data[k] = data[k]
-
-            data.update((hn, '') for hn in hnames.difference(data))
-
-            for k, v in data.items():
-                wk = f'w{k}'
-                widths[wk] = max(len(v), widths.get(wk, 0))
-            return data
-
-        # Setup a helper for consistent formatting of each node.
-        helper = FormatHelper(self)
-        offset_units = f'({helper.offset_units})'
-        units = {
-            'size': offset_units,
-            'offset': offset_units,
-            'value_hex': '(Hex)',
-            'value_bits': '(Bits)',
+        FORMATTERS = {
+            'display': DisplayFormatter,
+            'path': PathFormatter,
         }
 
-        # Insert the mapping between the stem and root names into the header.
-        if helper.qualstem is not None:
-            units['qualname'] = f'({helper.qualstem} => {helper.qualroot})'
+        # Get the formatter class to use.
+        name = self.config_get('formatter', 'display')
+        if name not in FORMATTERS:
+            choices = ' | '.join(sorted(FORMATTERS))
+            raise ValueError(f'Unknown variable formatter "{name}". Must be one of: {choices}.')
 
-        # Add formatting data for the heading labels and the variable.
-        row_data = [
-            update_widths(headings),
-            update_widths(units),
-        ]
-
-        # Determine the set of nodes to be formatted.
-        if self._chain.is_group:
-            # The variable was created on a node group.
-            nodes = self._chain
-        else:
-            # The variable was created on a singular node.
-            nodes = (self._node,)
-
-        # Gather formatting data for all nodes in the variable's hierarchy.
-        for node in nodes:
-            # Format the node.
-            var = self if node is self._node else self._context.new_variable(node, None, ...)
-            row_data.append(update_widths(var._format_node(helper)))
-
-            # Gather formatting data for each child node in the hierarchy.
-            for child in node.descendants:
-                var = self._context.new_variable(child, None, ...)
-                row_data.append(update_widths(var._format_node(helper)))
-
-        # Generate a string for each row.
-        width = 0
-        rows = []
-        for data in row_data:
-            row = fmt.format(**data, **widths)
-            width = max(width, len(row))
-            rows.append(row)
-
-        # Setup heading separators to frame the row strings.
-        sep = '-' * width
-        rows.insert(0, '=' * width)
-        rows.insert(3, sep)
-        rows.append(sep)
-
-        return '\n'.join(rows)
+        # Generate the formatted string.
+        return str(FORMATTERS.get(name)(self))
 
 #---------------------------------------------------------------------------------------------------
-class FormatHelper:
+class Formatter:
     def __init__(self, var):
+        self.var = var
         self.root = var._node
         self.is_group = var._chain.is_group
 
-        # Figure out how to display the qualified names of all the nodes.
-        self.abspath = False
-        self.qualstem, self.qualroot, self.qualstart = None, None, 0
-        for kargs in (var._context.kargs, var._kargs):
-            abspath = kargs.get('abspath')
-            if abspath is not None:
-                self.abspath = abspath
+        # Capture general display configuration.
+        self.verbose = var.config_get('verbose', False)
 
-            qualbase = kargs.get('qualbase')
-            if qualbase is not None:
-                self.qualstem, self.qualroot, self.qualstart = qualbase
+        # Determine the display format for the qualified name of all the nodes.
+        self.abspath = var.config_get('abspath', False)
+        self.qualstem, self.qualroot, self.qualstart = var.config_get('qualbase', (None, None, 0))
 
         # Determine the maximum number of nibbles for consistent offset display.
         region = var._node.region
         self.offset_units = 'Bytes' # TODO: Get from low-level IO.
         self.offset_scale = region.data_width // 8 # TODO: Get from low-level IO.
         self.offset_nibbles = ((region.size * self.offset_scale).bit_length() + 4 - 1) // 4
+
+        # Determine the formatting for values.
+        self.with_hex_grouping = var.config_get('hex_grouping', False)
+        self.with_bits_grouping = var.config_get('bits_grouping', True)
 
     def abs_qualname(self, node):
         qualname = node.qualname_from(self.qualstart)
@@ -254,14 +185,215 @@ class FormatHelper:
         return self.offset(start) + ' - ' + self.offset(end)
 
     def value_hex(self, value, region):
-        return f'0x{value:0{region.nibbles}x}'
+        if self.with_hex_grouping:
+            # Groupings for 'x' and 'X' formatting are every four digits.
+            # https://docs.python.org/3/library/string.html#format-specification-mini-language
+            width = region.nibbles + (region.nibbles + 4 - 1) // 4 - 1
+            grouping = '_'
+        else:
+            width = region.nibbles
+            grouping = ''
+        return f'0x{value:0{width}{grouping}x}'
 
     def value_bits(self, value, region):
-        return f'0b{value:0{region.width}_b}'
+        if self.with_bits_grouping:
+            # Groupings for 'b' formatting are every four digits.
+            # https://docs.python.org/3/library/string.html#format-specification-mini-language
+            width = region.width + (region.width + 4 - 1) // 4 - 1
+            grouping = '_'
+        else:
+            width = region.width
+            grouping = ''
+        return f'0b{value:0{width}{grouping}b}'
+
+    def update_widths(self, widths, data):
+        for key, value in data.items():
+            wkey = f'w{key}'
+            widths[wkey] = max(len(value), widths.get(wkey, 0))
+        return data
+
+    def __str__(self):
+        root = self.root
+        ctx = self.var._context
+        chain = self.var._chain
+
+        # Determine the set of nodes to be formatted.
+        # - If the variable was created on a node group, iterate over all nodes in the router chain.
+        # - If the variable was created on a singular node, use it.
+        nodes = chain if chain.is_group else (root,)
+
+        # Gather formatting data for all nodes in the variable's hierarchy.
+        col_widths = {}
+        row_data = []
+        for node in nodes:
+            # Format the node.
+            col_data = ctx.new_variable(node, None, ...)._format_node(self)
+            row_data.append(self.update_widths(col_widths, col_data))
+
+            # Gather formatting data for each child node in the hierarchy.
+            for child in node.descendants:
+                col_data = ctx.new_variable(child, None, ...)._format_node(self)
+                row_data.append(self.update_widths(col_widths, col_data))
+
+        # Generate a string for each row.
+        rows = self.format_rows(row_data, col_widths)
+
+        # Setup heading separators to frame the row strings.
+        return '\n'.join(rows)
+
+#---------------------------------------------------------------------------------------------------
+class DisplayFormatter(Formatter):
+    COLUMN_HEADINGS = {
+        'offset': 'Offset',
+        'path': 'Path',
+        'range': 'Range',
+        'size': 'Size',
+        'type': 'Type',
+        'value_bits': 'Value',
+        'value_hex': 'Value',
+    }
+
+    COLUMN_UNITS = {
+        'value_hex': 'Hex',
+        'value_bits': 'Bits',
+    }
+
+    COLUMN_FORMATS = {
+        'offset': '{offset:{aoffset}{woffset}}',
+        'path': '{path:{apath}{wpath}}',
+        'range': '{range:{arange}{wrange}}',
+        'size': '{size:{asize}{wsize}}',
+        'type': '{type:{atype}{wtype}}',
+        'value_bits': '{value_bits:{avalue_bits}{wvalue_bits}}',
+        'value_hex': '{value_hex:{avalue_hex}{wvalue_hex}}',
+    }
+
+    COLUMN_LAYOUT_VERBOSE = 'rs//|,t/>/|,s/>/|,o/>/|,r/^/=,vh/</:,vb/</|,p/</,re//|'
+    COLUMN_LAYOUT = 'rs//|,s/>/|,o/>/|,r/^/|,vh/</|,p/</,re//|'
+    COLUMN_MAP = {
+        'o': 'offset',
+        'p': 'path',
+        'r': 'range',
+        'rs': 'row_start',
+        're': 'row_end',
+        's': 'size',
+        't': 'type',
+        'vb': 'value_bits',
+        'vh': 'value_hex',
+    }
+
+    def __init__(self, *pargs, **kargs):
+        super().__init__(*pargs, **kargs)
+
+        # Determine the column layout to be displayed.
+        col_layout = self.var.config_get('column_layout')
+        if col_layout is None:
+            col_layout = self.COLUMN_LAYOUT_VERBOSE if self.verbose else self.COLUMN_LAYOUT
+        columns = col_layout.split(',')
+        ncols = len(columns)
+
+        col_align = {}
+        row_fmt = ''
+        csep = '/'
+        for c, col in enumerate(columns):
+            key, align, sep = col.split(csep)
+            if key == 'rs':
+                row_fmt += sep + ' '
+                ncols -= 1
+                continue
+            if key == 're':
+                row_fmt += ' ' + sep
+                ncols -= 1
+                continue
+
+            name = self.COLUMN_MAP[key]
+            col_align[f'a{name}'] = align
+            row_fmt += self.COLUMN_FORMATS[name] + (f' {sep} ' if c < ncols - 1 else '')
+
+        self.show_col_layout = self.var.config_get('show_column_layout', False)
+        self.col_layout = col_layout
+        self.col_align = col_align
+        self.row_fmt = row_fmt
+
+    def update_widths(self, widths, data):
+        # Insert a column for each missing header to ensure a width is calculated for everything.
+        data.update((h, '') for h in set(self.COLUMN_HEADINGS).difference(data))
+
+        return super().update_widths(widths, data)
+
+    def format_rows(self, row_data, col_widths):
+        # Dump the column layout only.
+        if self.show_col_layout:
+            rows = [
+                f'Default => column_layout={self.COLUMN_LAYOUT!r}',
+                f'Verbose => column_layout={self.COLUMN_LAYOUT_VERBOSE!r}',
+                '',
+                'Mapping of column layout keys to header names:',
+                'Key => Header',
+            ]
+            for key, name in sorted(self.COLUMN_MAP.items(), key=lambda pair: pair[0]):
+                row = f'{key:^3} => {self.COLUMN_HEADINGS.get(name, name)}'
+                units = self.COLUMN_UNITS.get(name, '')
+                if units:
+                    row += ' ' + units
+                rows.append(row)
+            return rows
+
+        # Determine the units for the columns.
+        offset_units = f'{self.offset_units}'
+        units = dict(self.COLUMN_UNITS)
+        units.update({
+            'size': offset_units,
+            'offset': offset_units,
+        })
+
+        # Insert the mapping between the stem and root names into the header.
+        if self.qualstem is not None:
+            units['path'] = f'{self.qualstem} => {self.qualroot}'
+
+        # Wrap the unit names in parentheses.
+        units = dict((k, f'({v})') for k, v in units.items())
+
+        # Add rows for the header.
+        row_data.insert(0, self.update_widths(col_widths, self.COLUMN_HEADINGS))
+        row_data.insert(1, self.update_widths(col_widths, units))
+
+        # Generate a string for each row.
+        width = 0
+        rows = []
+        for col_data in row_data:
+            row = self.row_fmt.format(**col_data, **col_widths, **self.col_align)
+            width = max(width, len(row))
+            rows.append(row)
+
+        # Setup row separators to frame the headers.
+        sep = '-' * width
+        rows.insert(0, '=' * width)
+        rows.insert(3, sep)
+        rows.append(sep)
+
+        return rows
+
+#---------------------------------------------------------------------------------------------------
+class PathFormatter(Formatter):
+    def __init__(self, *pargs, **kargs):
+        super().__init__(*pargs, **kargs)
+
+        # Force qualnames to be absolute.
+        self.abspath = True
+
+        # Sort lexicographically or leave in the order defined in the regmap specification.
+        self.path_sort = self.var.config_get('path_sort', False)
+
+    def format_rows(self, row_data, col_widths):
+        rows = [col_data['path'] for col_data in row_data]
+        if self.path_sort:
+            return sorted(rows)
+        return rows
 
 #---------------------------------------------------------------------------------------------------
 class StructureFormatter:
-    def _format_node(self, helper):
+    def _format_node(self, formattter):
         ntype = type(self._node)
         if ntype is address.Node:
             type_ = 'Address Space'
@@ -280,43 +412,43 @@ class StructureFormatter:
 
         return {
             'type': type_,
-            'qualname': helper.qualname(self._node),
-            'size': helper.size(region.size),
-            'offset': helper.offset_range(start, end),
+            'path': formattter.qualname(self._node),
+            'size': formattter.size(region.size),
+            'offset': formattter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class ArrayFormatter:
-    def _format_node(self, helper):
+    def _format_node(self, formattter):
         region = self._node.region
         start = region.offset.absolute
         end = region.offset.absolute + region.size - 1
-        qualname = helper.qualname(self._node)
+        qualname = formattter.qualname(self._node)
 
         return {
             'type': 'Array',
-            'qualname': f'{qualname}{[*self._node.indexer.fields]}',
-            'size': helper.size(region.size),
-            'offset': helper.offset_range(start, end),
+            'path': f'{qualname}{[*self._node.indexer.fields]}',
+            'size': formattter.size(region.size),
+            'offset': formattter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class RegisterFormatter:
-    def _format_node(self, helper):
+    def _format_node(self, formattter):
         region = self._node.region
         value = int(self.proxy)
 
         return {
             'type': 'Register',
-            'qualname': helper.qualname(self._node),
-            'size': helper.size(region.size),
-            'offset': helper.offset(region.offset.absolute),
-            'value_hex': helper.value_hex(value, region),
+            'path': formattter.qualname(self._node),
+            'size': formattter.size(region.size),
+            'offset': formattter.offset(region.offset.absolute),
+            'value_hex': formattter.value_hex(value, region),
         }
 
 #---------------------------------------------------------------------------------------------------
 class FieldFormatter:
-    def _format_node(self, helper):
+    def _format_node(self, formattter):
         region = self._node.region
         value = int(self.proxy)
 
@@ -327,10 +459,10 @@ class FieldFormatter:
 
         return {
             'type': 'Field',
-            'qualname': helper.qualname(self._node),
+            'path': formattter.qualname(self._node),
             'range': f'[{range_}]',
-            'value_hex': helper.value_hex(value, region),
-            'value_bits': helper.value_bits(value, region),
+            'value_hex': formattter.value_hex(value, region),
+            'value_bits': formattter.value_bits(value, region),
         }
 
 #---------------------------------------------------------------------------------------------------
