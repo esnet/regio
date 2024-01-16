@@ -1,4 +1,5 @@
 build/
 dist/
 poetry.lock
+setup.py
 __pycache__

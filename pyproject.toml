@@ -31,6 +31,10 @@ regio-flatten = "regio.tools.flatten:main"
 regio-generate = "regio.tools.generate:main"
 regio-info = "regio.tools.info:main"
 
+[tool.poetry.build]
+script = "build.py"
+generate-setup-file = true
+
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"

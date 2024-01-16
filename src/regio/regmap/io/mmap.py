@@ -10,6 +10,11 @@ from . import ffi
 from . import io
 from ..spec import info
 
+try:
+    from . import mmap_ext
+except ImportError:
+    mmap_ext = None
+
 #---------------------------------------------------------------------------------------------------
 class MmapIO(io.IO):
     WORD_CTYPES = {
@@ -61,13 +66,13 @@ class MmapIO(io.IO):
         self.mmap_size = mmap_size - self.page_no * mmap.PAGESIZE
 
         # Get the C type for accessing a single data word.
-        endian = endian.get()
-        self._word_ctype = self.WORD_CTYPES[octets][endian]
+        self.endian = endian.get()
+        self._word_ctype = self.WORD_CTYPES[octets][self.endian]
 
         # Get the largest valid C type for accessing words in bulk.
         psize = struct.calcsize('P') # Size in bytes of C pointer.
         if psize > octets and psize in self.WORD_CTYPES:
-            self._bulk_ctype = self.WORD_CTYPES[psize][endian]
+            self._bulk_ctype = self.WORD_CTYPES[psize][self.endian]
         else:
             self._bulk_ctype = self._word_ctype
 
@@ -175,13 +180,47 @@ class MmapIndirectIO(MmapIO):
                 count -= 1
 
 #---------------------------------------------------------------------------------------------------
-class DevMmapIO(MmapIndirectIO): ...
+# Use the C extension module if present. If not, fall back to using indirect IO via ctypes.
+if mmap_ext is None:
+    import logging
+    logging.warning(
+        f'{__name__}: Falling back to indirect mmap IO. Build C extension for direct IO support.')
+
+    MmapDirectIO = MmapIndirectIO
+else:
+    class MmapDirectIO(MmapIO):
+        def start(self):
+            if not self.started:
+                # Setup the mapping.
+                super().start()
+
+                # Instantiate a direct IO object from the C extension.
+                self._direct_io = mmap_ext.MmapDirectIO(
+                    self._base_addr, self.word_width, self.bulk_width,
+                    self.endian == io.Endian.LITTLE)
+
+        def stop(self):
+            if self.started:
+                del self._direct_io
+                super().stop()
+
+        def read(self, offset, size):
+            return self._direct_io.read(offset, size)
+
+        def write(self, offset, size, value):
+            self._direct_io.write(offset, size, value)
+
+        def update(self, offset, size, clr_mask, set_mask):
+            self._direct_io.update(offset, size, clr_mask, set_mask)
+
+#---------------------------------------------------------------------------------------------------
+class DevMmapIO(MmapDirectIO): ...
 class DevMmapIOForSpec(DevMmapIO):
     def __init__(self, spec, path, *pargs, **kargs):
         super().__init__(path, info.data_width_of(spec), *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
-class FileMmapIO(MmapIndirectIO):
+class FileMmapIO(MmapDirectIO):
     def __init__(self, path, file_size, *pargs, **kargs):
         super().__init__(path, *pargs, mmap_size=file_size, **kargs)
         self.file_size = file_size
