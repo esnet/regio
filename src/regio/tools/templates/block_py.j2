@@ -15,6 +15,7 @@ __all__ = (
 from regio.regmap import *
 
 #---------------------------------------------------------------------------------------------------
+{%- set data_width = 32 %}{#- TODO: Shouldn't be hardcoded. Get from YAML? #}
 class {{ blk.name_lower }}_block(Structure):
     {%- if blk.info %}
     '''
@@ -25,7 +26,7 @@ class {{ blk.name_lower }}_block(Structure):
 {%- set non_none_regs = 0 -%} {#- Tracking for empty blocks. -#}
 {%- for reg in blk.regs: %}
     {%- if reg.access == 'none': -%}
-        {%- if loop.last and non_none_regs == 0: %}
+        {%- if loop.last and non_none_regs == 0 and not blk.info: %}
     ...
         {%- endif -%}
         {%- continue -%}
@@ -33,34 +34,62 @@ class {{ blk.name_lower }}_block(Structure):
         {%- set non_none_regs = non_none_regs + 1 -%} {#- Tracking for empty blocks. -#}
     {%- endif -%}
 
+    {%- set reg_size = (reg.width + data_width - 1) // data_width %}
+    {%- set reg_width_rem = reg.width % data_width %}
     {%- if reg.count and reg.count > 1: %}
     class {{ reg.name_lower }}(Array, dimensions=({{ reg.count }},), offset={{ reg.offset // 4 }}): # 0x{{ '{:08X}'.format(reg.offset) }}
-        class value(Register, access='{{ reg.access | upper }}'):{%- if not reg.fields: %} ... {%- endif %}
+        class value(Register, access='{{ reg.access | upper }}', offset=0, size={{ reg_size }}):{%- if not reg.fields and not reg.desc: %} ... {%- endif %}
+            {%- if reg.desc %}
+            '''
+            {{ reg.desc | trim | replace('\n', '\n            ') }}
+            '''
+            {%- endif %}
+
         {%- if reg.fields: %}
+            {%- set non_none_fields = 0 %}
             {%- for field in reg.fields: %}
-            class {{ field.name_lower }}(Field, access='{{ field.access | upper }}', width={{ field.width }}, offset={{ field.offset }}): ...
+                {%- if field.access == 'none': %}
+                    {%- continue %}
+                {%- else %}
+                    {%- set non_none_fields = non_none_fields + 1 -%}
+                {%- endif %}
+            class {{ field.name_lower }}(Field, access='{{ field.access | upper }}', offset={{ field.offset }}, width={{ field.width }}): {%- if not field.desc %} ... {%- endif -%}
+                {%- if field.desc %}
+                '''
+                {{ field.desc | trim | replace('\n', '\n                ') }}
+                '''
+                {%- endif %}
             {%- endfor %}
         {%- endif %}
+        {%- if (not reg.fields or non_none_fields == 0) and reg_width_rem != 0: %}
+            class value(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
+        {%- endif %}
     {%- else: %}
-    class {{ reg.name_lower }}(Register, access='{{ reg.access | upper }}', offset={{ reg.offset // 4 }}): {%- if not reg.fields and not reg.info: %} ... {%- endif %} # 0x{{ '{:08X}'.format(reg.offset) }}
-        {%- if reg.info %}
+    class {{ reg.name_lower }}(Register, access='{{ reg.access | upper }}', offset={{ reg.offset // 4 }}, size={{ reg_size }}): {%- if not reg.fields and not reg.desc: %} ... {%- endif %} # 0x{{ '{:08X}'.format(reg.offset) }}
+        {%- if reg.desc %}
         '''
-        {{ reg.info | trim | replace('\n', '\n        ') }}
+        {{ reg.desc | trim | replace('\n', '\n        ') }}
         '''
         {%- endif %}
 
         {%- if reg.fields: %}
+            {%- set non_none_fields = 0 %}
             {%- for field in reg.fields: %}
                 {%- if field.access == 'none': %}
                     {%- continue %}
+                {%- else %}
+                    {%- set non_none_fields = non_none_fields + 1 -%}
                 {%- endif %}
-        class {{ field.name_lower }}(Field, access='{{ field.access | upper }}', offset={{ field.offset }}, width={{ field.width }}): {%- if not field.info %} ... {%- endif -%}
-                {%- if field.info %}
+        class {{ field.name_lower }}(Field, access='{{ field.access | upper }}', offset={{ field.offset }}, width={{ field.width }}): {%- if not field.desc %} ... {%- endif -%}
+                {%- if field.desc %}
             '''
-            {{ field.info | trim | replace('\n', '\n            ') }}
+            {{ field.desc | trim | replace('\n', '\n            ') }}
             '''
                 {%- endif %}
             {%- endfor %}
+        {%- endif %}
+        {%- if (not reg.fields or non_none_fields == 0) and reg_width_rem != 0: %}
+        class value(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
         {%- endif %}
     {%- endif %}
 {%- endfor %}
