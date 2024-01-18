@@ -3,7 +3,6 @@ __all__ = (
 )
 
 import click
-import datetime
 from pathlib import Path
 import sys
 
@@ -183,8 +182,6 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
 
     if 'py' in generators:
         # for Python generators, produce all relevant dependent types
-        cmdline = ' '.join(sys.argv)
-        now = str(datetime.datetime.utcnow()) + 'UTC'
         output_path = Path(output_dir)
 
         # Produce all Python language output files
@@ -207,7 +204,7 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             t = env.get_template('pyproject_toml.j2')
             outfilename = output_path / 'pyproject.toml'
             with outfilename.open(mode='w') as f:
-                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+                t.stream(top = top, blks = blks).dump(f)
 
             output_path /= ('regmap_' + top['name'])
             output_path.mkdir()
@@ -218,12 +215,12 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             t = env.get_template('toplevel_py.j2')
             outfilename = output_path / 'toplevel.py'
             with outfilename.open(mode='w') as f:
-                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+                t.stream(top = top, blks = blks).dump(f)
 
             t = env.get_template('regio_py.j2')
             outfilename = output_path / 'regio.py'
             with outfilename.open(mode='w') as f:
-                t.stream(cmdline = cmdline, now = now, top = top, blks = blks).dump(f)
+                t.stream(top = top, blks = blks).dump(f)
 
             output_path /= 'blocks'
             output_path.mkdir()
@@ -235,7 +232,7 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             t = env.get_template('block_py.j2')
             outfilename = output_path / (blk['name'] + '_block.py')
             with outfilename.open(mode='w') as f:
-                t.stream(cmdline = cmdline, now = now, blk = blk).dump(f)
+                t.stream(blk = blk).dump(f)
 
 def main():
     click_main()
