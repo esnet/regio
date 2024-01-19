@@ -1,0 +1,94 @@
+#---------------------------------------------------------------------------------------------------
+# Toplevel definitions for device: {{ top.name }}
+#   PCI Vendor: 0x{{ '{:04x}'.format(top.pci_vendor) }}
+#   PCI Device: 0x{{ '{:04x}'.format(top.pci_device) }}
+#
+{%- if top.info %}
+# {{ top.info | trim | replace('\n', '\n# ') }}
+#
+{%- endif %}
+#---------------------------------------------------------------------------------------------------
+__all__ = ()
+
+import pathlib
+from regio.regmap import *
+{% for blk in blks.keys() | sort: %}
+from .blocks.{{ blk }}_block import *
+{%- endfor %}
+
+BAR_INFO = {}
+__all__ += ('BAR_INFO',)
+{%- set data_width = 32 %}{#- TODO: Shouldn't be hardcoded. Get from YAML? #}
+{%- set data_size = data_width // 8 %}
+{% for barid, bar in top.bars.items(): -%}
+{%- set class_name = top.name_lower + '_' + bar.name_lower %}
+#---------------------------------------------------------------------------------------------------
+# Toplevel struct for BAR {{ barid }} ({{ bar.name }})  {{ bar.desc }}
+{{ top.name_upper }}_BAR{{ barid }}_SIZE_BYTES = {{ bar.size }}
+{{ top.name_upper }}_BAR{{ barid }}_SIZE_PAGES = {{ bar.size_pages }}
+
+class {{ class_name }}(AddressSpace, data_width={{ data_width }}, pad_to={{ bar.size // data_size }}):
+    {%- if top.info or bar.desc %}
+    '''
+        {%- if top.info %}
+    {{ top.info | trim | replace('\n', '\n    ') }}
+        {%- endif %}
+        {%- if bar.desc %}
+    {{ bar.desc | trim | replace('\n', '\n    ') }}
+        {%- endif %}
+    '''
+    {%- endif %}
+
+    {%- for region in (bar.regions + bar.padding) | sort(attribute='offset'): %}
+        {%- if 'block' in region: %}
+    class {{ region.name_lower }}({{ region.block.name_lower }}_block, offset={{ region.offset // data_size }}, pad_to={{ region.size // data_size }}): ... # 0x{{ '{:08X}'.format(region.offset) }}
+        {%- endif %}
+    {%- endfor %}
+
+def {{ class_name }}_new_proxy(pci_id, spec=None, io=None, *pargs, **kargs):
+    return _new_proxy(pci_id, {{ barid }}, {{ class_name }}, spec, io, *pargs, **kargs)
+
+BAR_INFO.update({
+    '{{ barid }}': {
+        'spec_cls': {{ class_name }},
+        'new_proxy': {{ class_name }}_new_proxy,
+    }
+})
+
+__all__ += (
+    '{{ class_name }}',
+    '{{ class_name }}_new_proxy',
+)
+{% endfor %}
+#---------------------------------------------------------------------------------------------------
+PCI_DEVICES_DIR = pathlib.Path('/sys/bus/pci/devices')
+
+def _hex_to_int(path):
+    with path.open('r') as fo:
+        return int(fo.read(), 16)
+
+def pci_device_ids():
+    return tuple(sorted(
+        dev.name
+        for dev in PCI_DEVICES_DIR.iterdir()
+        if (_hex_to_int(dev / 'vendor') == 0x{{ '{:04x}'.format(top.pci_vendor) }} and
+            _hex_to_int(dev / 'device') == 0x{{ '{:04x}'.format(top.pci_device) }})
+    ))
+
+__all__ += ('pci_device_ids',)
+
+#---------------------------------------------------------------------------------------------------
+def _new_proxy(pci_id, bar_id, spec_cls, spec=None, io=None, *pargs, **kargs):
+    # Instantiate the regmap specification.
+    if spec is None:
+        spec = spec_cls()
+    elif type(spec) is not spec_cls:
+        raise TypeError(f'Invalid type for regmap specification {spec!r}. Expected {spec_cls!r}.')
+
+    # Create the low-level IO accessor for the device.
+    if io is None:
+        io = DevMmapIOForSpec(spec, PCI_DEVICES_DIR / pci_id / f'resource{bar_id}')
+
+    # Create the proxy.
+    return for_io_by_path(spec, io, *pargs, **kargs)
+
