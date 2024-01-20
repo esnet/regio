@@ -3,3 +3,4 @@ dist/
 poetry.lock
 setup.py
 __pycache__
+regio-*.bar*.bin

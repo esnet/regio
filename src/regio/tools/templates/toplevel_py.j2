@@ -10,8 +10,7 @@
 #---------------------------------------------------------------------------------------------------
 __all__ = ()
 
-import pathlib
-from regio.regmap import *
+from regio.regmap.spec import AddressSpace
 {% for blk in blks.keys() | sort: %}
 from .blocks.{{ blk }}_block import *
 {%- endfor %}
@@ -61,6 +60,11 @@ __all__ += (
 )
 {% endfor %}
 #---------------------------------------------------------------------------------------------------
+import pathlib
+
+from regio.regmap.io import DevMmapIOForSpec
+from regio.regmap.proxy import for_io_by_path
+
 PCI_DEVICES_DIR = pathlib.Path('/sys/bus/pci/devices')
 
 def _hex_to_int(path):
