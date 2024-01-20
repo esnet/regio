@@ -58,8 +58,14 @@ IO_TYPES = {
     is_flag=True,
     default=False,
 )
+@click.option(
+    '--verbose',
+    help='Display using verbose configuration.',
+    is_flag=True,
+    default=False,
+)
 @click.pass_context
-def click_main(ctx, pci_ids, bar_ids, test_io, abspath):
+def click_main(ctx, pci_ids, bar_ids, test_io, abspath, verbose):
     '''
     Perform I/O operations on a PCI device using the {{ top.name }} register mapping.
     Acceptable PCI devices must have vendor ID 0x{{ '{:04x}'.format(top.pci_vendor) }} and device ID 0x{{ '{:04x}'.format(top.pci_device) }}.
@@ -81,6 +87,7 @@ def click_main(ctx, pci_ids, bar_ids, test_io, abspath):
     # Build a set of keyword arguments to configure the proxy.
     kargs = {
         'abspath': abspath,
+        'verbose': verbose,
     }
 
     # Create the proxies for each selected PCI device and BAR ID combinations.
