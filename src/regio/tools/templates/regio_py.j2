@@ -95,6 +95,10 @@ def click_main(ctx, pci_ids, bar_ids, test_io, abspath):
             io = None if io_type is None else io_type(specs[bid], pid, bid)
             setattr(dev, f'bar{bid}', BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **kargs))
 
+    # Invoked for command line completion, so don't do anything more.
+    if env.in_completion:
+        return
+
     # A sub-command wasn't specified, so default to dumping all registers in the environment.
     if ctx.invoked_subcommand is None:
         ctx.invoke(click_main.get_command(ctx, 'dump'))

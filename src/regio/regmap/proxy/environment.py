@@ -5,6 +5,7 @@ import code
 import collections
 import importlib, importlib.util
 import pathlib
+import re
 import sys
 
 import click, click.shell_completion
@@ -251,30 +252,85 @@ class Environment:
 
 #---------------------------------------------------------------------------------------------------
 class ClickEnvironment(Environment):
+    NAME_RE = r'(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)'
+    SUBS_RE = r'(?P<subs>(\[((\d+|(\d*:\d*(:\d*)?)),)*(\d+|(\d*:\d*(:\d*)?))\])*?)'
+    PART_RE = r'(?P<suffix>' + NAME_RE + SUBS_RE + r')'
+    PARTIAL_RE = re.compile(r'^(?P<stem>.*?)' + PART_RE + r'$')
+    PATH_RE = re.compile(r'^(?P<stem>.*?)' + PART_RE + r'\.?$')
+
     def __init__(self, parent, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
+
+        self.in_completion = False
         self._add_click_commands(parent)
 
-    def _eval_expr_complete(self, ctx, param, incomplete):
+    def _complete(self, incomplete):
+        # Extract the last path component on which completion is being attempted.
+        parts = []
+        match = self.PARTIAL_RE.match(incomplete)
+        if match is not None:
+            stem = match['stem']
+            name = match['name']
+            subs = match['subs']
+            if subs:
+                parts.append((name, subs))
+                partial_name = ''
+            else:
+                partial_name = name
+        else:
+            stem = incomplete
+            partial_name = ''
+
+        # Extract the path components leading up to the completion being attempted.
+        while True:
+            match = self.PATH_RE.match(stem)
+            if match is None:
+                break
+
+            stem = match['stem']
+            parts.append((match['name'], match['subs']))
+
+        # Perform the path lookup to find the namespace to query for the completion.
+        obj = self._mod
+        for name, subs in reversed(parts):
+            try:
+                obj = getattr(obj, name)
+            except AttributeError:
+                return []
+
+            for _ in range(subs.count('[')):
+                try:
+                    # The index doesn't matter for completion, just need an object in order to
+                    # continue the chain of lookups.
+                    obj = obj[0]
+                except IndexError:
+                    return []
+
+        # Build up the list of matches for the completion.
+        matches = [name for name in dir(obj) if name[:2] != '__' and name.startswith(partial_name)]
+        if matches:
+            if len(matches) == 1 and len(dir(getattr(obj, matches[0]))) > 0:
+                matches.append(matches[0] + '.')
+
+            nstrip = len(partial_name)
+            matches = [incomplete + m[nstrip:] for m in matches]
+        return [click.shell_completion.CompletionItem(m) for m in matches]
+
+    def _path_complete(self, ctx, param, incomplete):
         # Run the main command to load the regmap and insert variables into the environment.
-        # Note that this completion is current slowed due to the lack of caching of the regmap
-        # specification. Instantiating the entire specification repeatedly is time consuming and
-        # could be improved.
         main = ctx.find_root()
         kargs = dict(main.params)
         kargs['test_io'] = 'zero'
-        main.invoke(main.command, **kargs)
 
-        import jedi
-        interp = jedi.Interpreter(incomplete, [self._namespace])
-        return [
-            click.shell_completion.CompletionItem(incomplete + compl.complete)
-            for compl in interp.complete()
-        ]
+        self.in_completion = True
+        main.invoke(main.command, **kargs) # TODO: can flag be passed via kargs instead?
+        self.in_completion = False
+
+        return self._complete(incomplete)
 
     def _add_click_commands(self, parent):
         @parent.command()
-        @click.argument('object-paths', nargs=-1)
+        @click.argument('object-paths', nargs=-1, shell_complete=self._path_complete)
         def dump(object_paths):
             '''
             Read and display selected sub-tree(s) from loaded register map specifications. Without
@@ -283,7 +339,7 @@ class ClickEnvironment(Environment):
             self.dump(object_paths)
 
         @parent.command()
-        @click.argument('expressions', nargs=-1, shell_complete=self._eval_expr_complete)
+        @click.argument('expressions', nargs=-1, shell_complete=self._path_complete)
         def eval(expressions):
             '''
             Evaluate a sequence of Python expressions within the context of the loaded register
