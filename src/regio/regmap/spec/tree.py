@@ -21,7 +21,14 @@ class Base(tree.Node):
         raise NotImplementedError
 
     def qualname_from(self, start):
-        return '.'.join(self.path[start:])
+        count = len(self.path)
+        if start >= count:
+            return ''
+
+        parent = self.parent
+        if parent is None or start == count - 1:
+            return self.name
+        return parent.qualname_from(start) + '.' + self.name
 
     @property
     def qualname(self):

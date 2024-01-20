@@ -165,13 +165,14 @@ class Formatter:
             return qualname
         return self.qualstem + ('.' + qualname if qualname else '')
 
-    def rel_qualname(self, node):
-        if not self.is_group and node is self.root:
-            return f'. [=> {self.abs_qualname(node)}]'
-        return '.' + node.qualname_from(len(self.root.path))
+    def rel_qualname(self, node, is_root=True):
+        start = len(self.root.path)
+        if is_root:
+            return node.qualname_from(start - 1)
+        return '.' + node.qualname_from(start)
 
-    def qualname(self, node):
-        return self.abs_qualname(node) if self.abspath else self.rel_qualname(node)
+    def qualname(self, node, is_root=True):
+        return self.abs_qualname(node) if self.abspath else self.rel_qualname(node, is_root)
 
     def size(self, value):
         value *= self.offset_scale
@@ -227,12 +228,12 @@ class Formatter:
         row_data = []
         for node in nodes:
             # Format the node.
-            col_data = ctx.new_variable(node, None, ...)._format_node(self)
+            col_data = ctx.new_variable(node, None, ...)._format_node(self, True)
             row_data.append(self.update_widths(col_widths, col_data))
 
             # Gather formatting data for each child node in the hierarchy.
             for child in node.descendants:
-                col_data = ctx.new_variable(child, None, ...)._format_node(self)
+                col_data = ctx.new_variable(child, None, ...)._format_node(self, False)
                 row_data.append(self.update_widths(col_widths, col_data))
 
         # Generate a string for each row.
@@ -393,7 +394,7 @@ class PathFormatter(Formatter):
 
 #---------------------------------------------------------------------------------------------------
 class StructureFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formattter, is_root=True):
         ntype = type(self._node)
         if ntype is address.Node:
             type_ = 'Address Space'
@@ -412,35 +413,36 @@ class StructureFormatter:
 
         return {
             'type': type_,
-            'path': formattter.qualname(self._node),
+            'path': formattter.qualname(self._node, is_root),
             'size': formattter.size(region.size),
             'offset': formattter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class ArrayFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formattter, is_root=True):
         region = self._node.region
         start = region.offset.absolute
         end = region.offset.absolute + region.size - 1
-        qualname = formattter.qualname(self._node)
+        qualname = formattter.qualname(self._node, is_root)
+        subscripts = ''.join(f'[:{f}]' for f in self._node.indexer.fields)
 
         return {
             'type': 'Array',
-            'path': f'{qualname}{[*self._node.indexer.fields]}',
+            'path': f'{qualname}{subscripts}',
             'size': formattter.size(region.size),
             'offset': formattter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class RegisterFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formattter, is_root=True):
         region = self._node.region
         value = int(self.proxy)
 
         return {
             'type': 'Register',
-            'path': formattter.qualname(self._node),
+            'path': formattter.qualname(self._node, is_root),
             'size': formattter.size(region.size),
             'offset': formattter.offset(region.offset.absolute),
             'value_hex': formattter.value_hex(value, region),
@@ -448,7 +450,7 @@ class RegisterFormatter:
 
 #---------------------------------------------------------------------------------------------------
 class FieldFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formattter, is_root=True):
         region = self._node.region
         value = int(self.proxy)
 
@@ -459,7 +461,7 @@ class FieldFormatter:
 
         return {
             'type': 'Field',
-            'path': formattter.qualname(self._node),
+            'path': formattter.qualname(self._node, is_root),
             'range': f'[{range_}]',
             'value_hex': formattter.value_hex(value, region),
             'value_bits': formattter.value_bits(value, region),
