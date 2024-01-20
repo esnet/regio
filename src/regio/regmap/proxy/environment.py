@@ -7,25 +7,7 @@ import importlib, importlib.util
 import pathlib
 import sys
 
-try:
-    import click, click.shell_completion
-    import jedi
-except ImportError:
-    click = None
-
-try:
-    import IPython
-except ImportError:
-    IPython = None
-
-_ptipython = None
-try:
-    import ptpython as _ptpython
-except ImportError:
-    _ptpython = None
-else:
-    if IPython is not None:
-        import ptpython.ipython as _ptipython
+import click, click.shell_completion
 
 from . import proxy, variable
 
@@ -214,7 +196,9 @@ class Environment:
             shell.interact()
 
     def ipython_shell(self):
-        if IPython is None:
+        try:
+            import IPython
+        except ImportError:
             raise NotImplementedError('Missing IPython module.')
 
         # Create the shell or re-use the previously cached one. This allows maintaining state
@@ -230,7 +214,9 @@ class Environment:
             shell(local_ns=self._namespace, module=self._mod)
 
     def ptpython_shell(self):
-        if _ptpython is None:
+        try:
+            import ptpython
+        except ImportError:
             raise NotImplementedError('Missing ptpython module.')
 
         # Create the shell or re-use the previously cached one. This allows maintaining state
@@ -238,7 +224,7 @@ class Environment:
         try:
             shell = self._ptpython_shell
         except AttributeError:
-            shell = _ptpython.repl.PythonRepl(
+            shell = ptpython.repl.PythonRepl(
                 get_globals=lambda: self._namespace,
                 get_locals=lambda: self._namespace)
             self._ptpython_shell = shell
@@ -248,13 +234,15 @@ class Environment:
             shell.run()
 
     def ptipython_shell(self):
-        if _ptipython is None:
+        try:
+            import ptpython.ipython as ptipython
+        except ImportError:
             raise NotImplementedError('Missing ptpython and/or IPython module(s).')
 
         try:
             shell = self._ptipython_shell
         except AttributeError:
-            shell = _ptipython.InteractiveShellEmbed()
+            shell = ptipython.InteractiveShellEmbed()
             self._ptipython_shell = shell
 
         # Run the interactive shell.
@@ -265,9 +253,6 @@ class Environment:
 class ClickEnvironment(Environment):
     def __init__(self, parent, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
-
-        if click is None:
-            raise NotImplementedError('Missing click module.')
         self._add_click_commands(parent)
 
     def _eval_expr_complete(self, ctx, param, incomplete):
@@ -280,6 +265,7 @@ class ClickEnvironment(Environment):
         kargs['test_io'] = 'zero'
         main.invoke(main.command, **kargs)
 
+        import jedi
         interp = jedi.Interpreter(incomplete, [self._namespace])
         return [
             click.shell_completion.CompletionItem(incomplete + compl.complete)
@@ -328,29 +314,26 @@ class ClickEnvironment(Environment):
             '''
             self.python_shell()
 
-        if IPython is not None:
-            @shell.command()
-            def ipython():
-                '''
-                Enter the IPython shell.
-                '''
-                self.ipython_shell()
+        @shell.command()
+        def ipython():
+            '''
+            Enter the IPython shell.
+            '''
+            self.ipython_shell()
 
-        if _ptpython is not None:
-            @shell.command()
-            def ptpython():
-                '''
-                Enter the Prompt Toolkit shell.
-                '''
-                self.ptpython_shell()
+        @shell.command()
+        def ptpython():
+            '''
+            Enter the Prompt Toolkit shell.
+            '''
+            self.ptpython_shell()
 
-        if _ptipython is not None:
-            @shell.command()
-            def ptipython():
-                '''
-                Enter the Prompt Toolkit IPython shell.
-                '''
-                self.ptipython_shell()
+        @shell.command()
+        def ptipython():
+            '''
+            Enter the Prompt Toolkit IPython shell.
+            '''
+            self.ptipython_shell()
 
         @parent.group()
         def completions():
