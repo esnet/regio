@@ -14,6 +14,14 @@ class Access(enum.Enum):
     WR_EVT = enum.auto()
     RD_EVT = enum.auto()
 
+    @property
+    def is_readable(self):
+        return self in (Access.RO, Access.RW, Access.RD_EVT)
+
+    @property
+    def is_writeable(self):
+        return self in (Access.WO, Access.RW, Access.WR_EVT)
+
 #---------------------------------------------------------------------------------------------------
 class Config(config.Config):
     access = config.EnumFromStr(Access, 'RW')

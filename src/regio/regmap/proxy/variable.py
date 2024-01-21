@@ -156,6 +156,7 @@ class Formatter:
         self.offset_nibbles = ((region.size * self.offset_scale).bit_length() + 4 - 1) // 4
 
         # Determine the formatting for values.
+        self.ignore_access = var.config_get('ignore_access', False)
         self.with_hex_grouping = var.config_get('hex_grouping', False)
         self.with_bits_grouping = var.config_get('bits_grouping', True)
 
@@ -194,7 +195,7 @@ class Formatter:
         else:
             width = region.nibbles
             grouping = ''
-        return f'0x{value:0{width}{grouping}x}'
+        return '0x' + ('-' * width if value is None else f'{value:0{width}{grouping}x}')
 
     def value_bits(self, value, region):
         if self.with_bits_grouping:
@@ -205,7 +206,7 @@ class Formatter:
         else:
             width = region.width
             grouping = ''
-        return f'0b{value:0{width}{grouping}b}'
+        return '0b' + ('-' * width if value is None else f'{value:0{width}{grouping}b}')
 
     def update_widths(self, widths, data):
         for key, value in data.items():
@@ -245,6 +246,7 @@ class Formatter:
 #---------------------------------------------------------------------------------------------------
 class DisplayFormatter(Formatter):
     COLUMN_HEADINGS = {
+        'access': 'Access',
         'offset': 'Offset',
         'path': 'Path',
         'range': 'Range',
@@ -260,6 +262,7 @@ class DisplayFormatter(Formatter):
     }
 
     COLUMN_FORMATS = {
+        'access': '{access:{aaccess}{waccess}}',
         'offset': '{offset:{aoffset}{woffset}}',
         'path': '{path:{apath}{wpath}}',
         'range': '{range:{arange}{wrange}}',
@@ -269,9 +272,10 @@ class DisplayFormatter(Formatter):
         'value_hex': '{value_hex:{avalue_hex}{wvalue_hex}}',
     }
 
-    COLUMN_LAYOUT_VERBOSE = 'rs//|,t/>/|,s/>/|,o/>/|,r/^/=,vh/</:,vb/</|,p/</,re//|'
+    COLUMN_LAYOUT_VERBOSE = 'rs//|,t/>/|,a/^/|,s/>/|,o/>/|,r/^/=,vh/</:,vb/</|,p/</,re//|'
     COLUMN_LAYOUT = 'rs//|,s/>/|,o/>/|,r/^/|,vh/</|,p/</,re//|'
     COLUMN_MAP = {
+        'a': 'access',
         'o': 'offset',
         'p': 'path',
         'r': 'range',
@@ -394,7 +398,7 @@ class PathFormatter(Formatter):
 
 #---------------------------------------------------------------------------------------------------
 class StructureFormatter:
-    def _format_node(self, formattter, is_root=True):
+    def _format_node(self, formatter, is_root=True):
         ntype = type(self._node)
         if ntype is address.Node:
             type_ = 'Address Space'
@@ -413,46 +417,49 @@ class StructureFormatter:
 
         return {
             'type': type_,
-            'path': formattter.qualname(self._node, is_root),
-            'size': formattter.size(region.size),
-            'offset': formattter.offset_range(start, end),
+            'path': formatter.qualname(self._node, is_root),
+            'size': formatter.size(region.size),
+            'offset': formatter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class ArrayFormatter:
-    def _format_node(self, formattter, is_root=True):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
         start = region.offset.absolute
         end = region.offset.absolute + region.size - 1
-        qualname = formattter.qualname(self._node, is_root)
+        qualname = formatter.qualname(self._node, is_root)
         subscripts = ''.join(f'[:{f}]' for f in self._node.indexer.fields)
 
         return {
             'type': 'Array',
             'path': f'{qualname}{subscripts}',
-            'size': formattter.size(region.size),
-            'offset': formattter.offset_range(start, end),
+            'size': formatter.size(region.size),
+            'offset': formatter.offset_range(start, end),
         }
 
 #---------------------------------------------------------------------------------------------------
 class RegisterFormatter:
-    def _format_node(self, formattter, is_root=True):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
-        value = int(self.proxy)
+        access = self._node.config.access
+        value = int(self.proxy) if formatter.ignore_access or access.is_readable else None
 
         return {
             'type': 'Register',
-            'path': formattter.qualname(self._node, is_root),
-            'size': formattter.size(region.size),
-            'offset': formattter.offset(region.offset.absolute),
-            'value_hex': formattter.value_hex(value, region),
+            'access': self._node.config.access.name,
+            'path': formatter.qualname(self._node, is_root),
+            'size': formatter.size(region.size),
+            'offset': formatter.offset(region.offset.absolute),
+            'value_hex': formatter.value_hex(value, region),
         }
 
 #---------------------------------------------------------------------------------------------------
 class FieldFormatter:
-    def _format_node(self, formattter, is_root=True):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
-        value = int(self.proxy)
+        access = self._node.config.access
+        value = int(self.proxy) if formatter.ignore_access or access.is_readable else None
 
         range_ = f'{region.pos.absolute}'
         if region.width > 1:
@@ -461,10 +468,11 @@ class FieldFormatter:
 
         return {
             'type': 'Field',
-            'path': formattter.qualname(self._node, is_root),
+            'access': self._node.config.access.name,
+            'path': formatter.qualname(self._node, is_root),
             'range': f'[{range_}]',
-            'value_hex': formattter.value_hex(value, region),
-            'value_bits': formattter.value_bits(value, region),
+            'value_hex': formatter.value_hex(value, region),
+            'value_bits': formatter.value_bits(value, region),
         }
 
 #---------------------------------------------------------------------------------------------------
