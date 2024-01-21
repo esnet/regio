@@ -123,6 +123,7 @@ class Variable:
     def __str__(self):
         FORMATTERS = {
             'display': DisplayFormatter,
+            'json': JsonFormatter,
             'path': PathFormatter,
         }
 
@@ -210,8 +211,9 @@ class Formatter:
 
     def update_widths(self, widths, data):
         for key, value in data.items():
-            wkey = f'w{key}'
-            widths[wkey] = max(len(value), widths.get(wkey, 0))
+            if isinstance(value, str):
+                wkey = f'w{key}'
+                widths[wkey] = max(len(value), widths.get(wkey, 0))
         return data
 
     def __str__(self):
@@ -397,6 +399,18 @@ class PathFormatter(Formatter):
         return rows
 
 #---------------------------------------------------------------------------------------------------
+class JsonFormatter(Formatter):
+    def __init__(self, *pargs, **kargs):
+        super().__init__(*pargs, **kargs)
+
+        # Force qualnames to be absolute.
+        self.abspath = True
+
+    def format_rows(self, row_data, col_widths):
+        import json
+        return [json.dumps(row_data, indent=4)]
+
+#---------------------------------------------------------------------------------------------------
 class StructureFormatter:
     def _format_node(self, formatter, is_root=True):
         ntype = type(self._node)
@@ -420,6 +434,16 @@ class StructureFormatter:
             'path': formatter.qualname(self._node, is_root),
             'size': formatter.size(region.size),
             'offset': formatter.offset_range(start, end),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
@@ -436,6 +460,16 @@ class ArrayFormatter:
             'path': f'{qualname}{subscripts}',
             'size': formatter.size(region.size),
             'offset': formatter.offset_range(start, end),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
@@ -452,6 +486,21 @@ class RegisterFormatter:
             'size': formatter.size(region.size),
             'offset': formatter.offset(region.offset.absolute),
             'value_hex': formatter.value_hex(value, region),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'access': self._node.config.access.value,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'value': value,
+                'width': region.width,
+                'mask': region.mask,
+                'shift': region.shift,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
@@ -473,6 +522,22 @@ class FieldFormatter:
             'range': f'[{range_}]',
             'value_hex': formatter.value_hex(value, region),
             'value_bits': formatter.value_bits(value, region),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'access': self._node.config.access.value,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'value': value,
+                'pos': region.pos.absolute,
+                'width': region.width,
+                'mask': region.mask,
+                'shift': region.shift,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
