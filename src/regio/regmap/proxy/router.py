@@ -56,6 +56,9 @@ class RouterChain:
     def extend(self, *ops):
         return type(self)(*self.ops, *ops)
 
+    def pop(self):
+        self.ops = self.ops[:-1]
+
     def __len__(self):
         return self.length
 
@@ -267,45 +270,43 @@ class ByIndexGetitem:
 
         # Attach the current partial key for handling repeated indexing operations.
         # Don't use super() here because the mixins can (and generally will) override __setattr__.
-        if key is None:
-            node = self.___node___
-            key = node.indexer.new_key(()) # Key is wildcarded in all dimensions.
-            chain = self.___chain___.extend(GetitemChainOp(node, key))
-            object.__setattr__(self, '___chain___', chain) # Update the chain for the new key.
         object.__setattr__(self, '___key___', key)
 
     def __getitem__(self, key):
         node = self.___node___
         chain = self.___chain___
+        partial_key = self.___key___
 
         # Build-up the key from repeated applications of proxy[key], one application per dimension.
         # The key is wrapped in a tuple to indicate that it encompasses a single field. This is to
         # support the slice list syntax, since a slice list represents a range built from multiple
         # sub-ranges.
-        key = self.___key___.extend((key,))
-
-        # Replace the previous chain operation on the wildcarded key with a new one containing the
-        # extension from this application.
-        ops = chain.ops[:-1]
+        if partial_key is None:
+            # First application.
+            partial_key = node.indexer.new_key(())
+        else:
+            # Remove the previous chain operation on the wildcarded partial key in preparation for
+            # replacing it with a new one containing the key extension from this application.
+            chain.pop()
+        new_key = partial_key.extend((key,))
 
         # Push this operation onto the end of the current chain. Since operations only need to be
-        # tracked when routing through a group, the new chain may become empty if the key selected
-        # a singular item.
-        if key.is_slice or ops:
-            ops += (GetitemChainOp(node, key),)
-        chain = type(chain)(*ops)
+        # tracked when routing through a group, a new operation needs to be added to the chain if
+        # the new key creates a group (due to being a slice) or is already in a group.
+        if new_key.is_slice or chain.is_group:
+            chain = chain.extend(GetitemChainOp(node, new_key))
 
-        # A partial key has been assembled. Create a new router on the current node to continue
+        # The newly assembled key is partial. Create a new router on the current node to continue
         # partial indexing operations until the key is completed. The range of iterable items for
         # the new proxy will differ based on the ranges specified by the key extension.
-        if key.nfields < key.indexer.nfields:
-            return self.___context___.new_proxy(node, chain, key=key)
+        if new_key.is_partial:
+            return self.___context___.new_proxy(node, chain, key=new_key)
 
         # A complete key has been assembled.
         # When routing for a slice, the first child node is used as the reference object. This node
         # only provides type information. Selecting it doesn't imply that it's actually included in
         # the range covered by the slice. This is done to handle empty slice ranges.
-        child = node.children[0 if key.is_slice else key.to_ordinal(key.first)]
+        child = node.children[0 if new_key.is_slice else new_key.to_ordinal(new_key.first)]
 
         # Chain to the router of the retrieved specification object.
         return self.___context___.new_proxy(child, chain)
