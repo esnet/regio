@@ -51,21 +51,9 @@ IO_TYPES = {
     help='Run in test mode using an alternate IO type independent of hardware.',
     type=click.Choice(tuple(sorted(IO_TYPES))),
 )
-@click.option(
-    '--abspath',
-    help='Include all components when displaying regmap object paths. Default behaviour is to '
-         'print paths relative to the selected object.',
-    is_flag=True,
-    default=False,
-)
-@click.option(
-    '--verbose',
-    help='Display using verbose configuration.',
-    is_flag=True,
-    default=False,
-)
+@ClickEnvironment.main_options
 @click.pass_context
-def click_main(ctx, pci_ids, bar_ids, test_io, abspath, verbose):
+def click_main(ctx, pci_ids, bar_ids, test_io, **env_kargs):
     '''
     Perform I/O operations on a PCI device using the {{ top.name }} register mapping.
     Acceptable PCI devices must have vendor ID 0x{{ '{:04x}'.format(top.pci_vendor) }} and device ID 0x{{ '{:04x}'.format(top.pci_device) }}.
@@ -85,13 +73,10 @@ def click_main(ctx, pci_ids, bar_ids, test_io, abspath, verbose):
         specs[bid] = BAR_INFO[bid]['spec_cls']()
 
     # Build a set of keyword arguments to configure the proxy.
-    kargs = {
-        'abspath': abspath,
-        'verbose': verbose,
-    }
+    env = ctx.obj
+    proxy_kargs = env.process_options(env_kargs)
 
     # Create the proxies for each selected PCI device and BAR ID combinations.
-    env = ctx.obj
     for i, pid in enumerate(pci_ids):
         # Insert a name for the device into the execution environment.
         dev = env.new_variable(f'dev{i}')
@@ -100,7 +85,8 @@ def click_main(ctx, pci_ids, bar_ids, test_io, abspath, verbose):
         # Create the proxy on the BAR(s).
         for bid in bar_ids:
             io = None if io_type is None else io_type(specs[bid], pid, bid)
-            setattr(dev, f'bar{bid}', BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **kargs))
+            proxy = BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **proxy_kargs)
+            setattr(dev, f'bar{bid}', proxy)
 
     # Invoked for command line completion, so don't do anything more.
     if env.in_completion:

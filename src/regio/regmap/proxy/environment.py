@@ -264,6 +264,31 @@ class ClickEnvironment(Environment):
         self.in_completion = False
         self._add_click_commands(parent)
 
+    @staticmethod
+    def main_options(main):
+        options = (
+            click.option(
+                '--verbose',
+                help='Display using verbose configuration.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--abspath',
+                help='Include all components when displaying regmap object paths. Default behaviour'
+                     ' is to print paths relative to the selected object.',
+                is_flag=True,
+                default=False,
+            ),
+        )
+
+        for opt in reversed(options):
+            main = opt(main)
+        return main
+
+    def process_options(self, kargs):
+        return dict(kargs)
+
     def _complete(self, incomplete):
         # Extract the last path component on which completion is being attempted.
         parts = []
