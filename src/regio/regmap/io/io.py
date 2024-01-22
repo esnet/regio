@@ -167,7 +167,8 @@ class ListIO(IO):
 #---------------------------------------------------------------------------------------------------
 class ListIOForSpec(ListIO):
     def __init__(self, spec, *pargs, **kargs):
-        super().__init__(info.size_of(spec), *pargs, **kargs)
+        region = info.region_of(spec)
+        super().__init__(region.size, region.data_width, *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
 class DictIO(IO):

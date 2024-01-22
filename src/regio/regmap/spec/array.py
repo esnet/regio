@@ -32,7 +32,7 @@ class Node(tree.Node):
         # according to the ordering dictated by the indexer (as a flattened C-style array).
         data = meta.data_get(type(self.spec))
         for index in self.indexer:
-            data.element_cls(f'{self.name}{[*index]}', self.spec, index)
+            data.element_cls(''.join(f'[{i}]' for i in index), self.spec, index)
 
     def init_region(self, region):
         # Set the base offset in the outer region.
@@ -95,9 +95,13 @@ class ElementNode(structure.Node):
 
     def members_init(self):
         self.ordinal = self.parent.indexer.to_ordinal(self.index)
-        self.path = self.parent.path[:-1] + (self.name,)
-
         super().members_init()
+
+    def qualname_from(self, start):
+        qualname = self.parent.qualname_from(start)
+        if not qualname:
+            qualname = self.parent.name
+        return qualname + self.name
 
 # Should not be explicitly sub-classed. Used implicitly in Array __init_subclass__.
 class Element(structure.Structure, metainfo=(structure.Config, ElementNode)): ...

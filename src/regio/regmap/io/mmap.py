@@ -64,6 +64,7 @@ class MmapIO(io.IO):
         self.page_no = (offset + mmap.PAGESIZE - 1) // mmap.PAGESIZE
         self.page_offset = offset % mmap.PAGESIZE
         self.mmap_size = mmap_size - self.page_no * mmap.PAGESIZE
+        self.libc = ffi.LibC()
 
         # Get the C type for accessing a single data word.
         self.endian = endian.get()
@@ -88,7 +89,7 @@ class MmapIO(io.IO):
 
         # Map the file's memory region into the virtual address space.
         with self.path.open('r+b') as fo:
-            self._addr_p = ffi.libc.mmap(
+            self._addr_p = self.libc.mmap(
                 ffi.ctype.pointer.NULL, self.mmap_size, mmap.PROT_READ | mmap.PROT_WRITE,
                 mmap.MAP_SHARED, fo.fileno(), self.page_no * mmap.PAGESIZE)
 
@@ -101,7 +102,7 @@ class MmapIO(io.IO):
             return
 
         # Unmap the memory region from the virtual address space.
-        ffi.libc.munmap(self._addr_p, self.mmap_size)
+        self.libc.munmap(self._addr_p, self.mmap_size)
         del self._addr_p
         del self._base_addr
         super().stop()

@@ -123,6 +123,7 @@ class Region:
 
             self.info.offset = self.info.base.copy()
             self.info.offset.inc(offset)
+            self.info.register = self.domain.register
 
             self.info.pos = pos
             self.info.width = width

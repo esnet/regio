@@ -1,7 +1,7 @@
 #---------------------------------------------------------------------------------------------------
 __all__ = ()
 
-import ctypes as _ctypes, ctypes.util as _cutil
+import ctypes as _ctypes
 import os
 
 #---------------------------------------------------------------------------------------------------
@@ -59,6 +59,8 @@ class CType:
 #---------------------------------------------------------------------------------------------------
 class LibC:
     def __init__(self):
+        import ctypes.util as _cutil
+
         # Get the C library's path.
         # https://docs.python.org/3/library/ctypes.html#finding-shared-libraries
         self.path = _cutil.find_library('c')
@@ -124,4 +126,3 @@ class LibC:
 #---------------------------------------------------------------------------------------------------
 # Instantiate on import of the module.
 ctype = CType()
-libc = LibC()

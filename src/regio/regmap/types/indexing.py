@@ -149,6 +149,10 @@ class Key:
         raise TypeError(f'Field range {range_!r} must be either an integer or slice.')
 
     @property
+    def is_partial(self):
+        return self.nfields < self.indexer.nfields
+
+    @property
     def first(self):
         return tuple(r.ranges[0].start for r in self.ranges)
 

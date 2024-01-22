@@ -5,27 +5,10 @@ import code
 import collections
 import importlib, importlib.util
 import pathlib
+import re
 import sys
 
-try:
-    import click, click.shell_completion
-    import jedi
-except ImportError:
-    click = None
-
-try:
-    import IPython
-except ImportError:
-    IPython = None
-
-_ptipython = None
-try:
-    import ptpython as _ptpython
-except ImportError:
-    _ptpython = None
-else:
-    if IPython is not None:
-        import ptpython.ipython as _ptipython
+import click, click.shell_completion
 
 from . import proxy, variable
 
@@ -214,7 +197,9 @@ class Environment:
             shell.interact()
 
     def ipython_shell(self):
-        if IPython is None:
+        try:
+            import IPython
+        except ImportError:
             raise NotImplementedError('Missing IPython module.')
 
         # Create the shell or re-use the previously cached one. This allows maintaining state
@@ -230,7 +215,9 @@ class Environment:
             shell(local_ns=self._namespace, module=self._mod)
 
     def ptpython_shell(self):
-        if _ptpython is None:
+        try:
+            import ptpython
+        except ImportError:
             raise NotImplementedError('Missing ptpython module.')
 
         # Create the shell or re-use the previously cached one. This allows maintaining state
@@ -238,7 +225,7 @@ class Environment:
         try:
             shell = self._ptpython_shell
         except AttributeError:
-            shell = _ptpython.repl.PythonRepl(
+            shell = ptpython.repl.PythonRepl(
                 get_globals=lambda: self._namespace,
                 get_locals=lambda: self._namespace)
             self._ptpython_shell = shell
@@ -248,13 +235,15 @@ class Environment:
             shell.run()
 
     def ptipython_shell(self):
-        if _ptipython is None:
+        try:
+            import ptpython.ipython as ptipython
+        except ImportError:
             raise NotImplementedError('Missing ptpython and/or IPython module(s).')
 
         try:
             shell = self._ptipython_shell
         except AttributeError:
-            shell = _ptipython.InteractiveShellEmbed()
+            shell = ptipython.InteractiveShellEmbed()
             self._ptipython_shell = shell
 
         # Run the interactive shell.
@@ -263,32 +252,153 @@ class Environment:
 
 #---------------------------------------------------------------------------------------------------
 class ClickEnvironment(Environment):
+    NAME_RE = r'(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)'
+    SUBS_RE = r'(?P<subs>(\[((\d+|(\d*:\d*(:\d*)?)),)*(\d+|(\d*:\d*(:\d*)?))\])*?)'
+    PART_RE = r'(?P<suffix>' + NAME_RE + SUBS_RE + r')'
+    PARTIAL_RE = re.compile(r'^(?P<stem>.*?)' + PART_RE + r'$')
+    PATH_RE = re.compile(r'^(?P<stem>.*?)' + PART_RE + r'\.?$')
+
     def __init__(self, parent, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
 
-        if click is None:
-            raise NotImplementedError('Missing click module.')
+        self.in_completion = False
         self._add_click_commands(parent)
 
-    def _eval_expr_complete(self, ctx, param, incomplete):
+    @staticmethod
+    def main_options(main):
+        options = (
+            click.option(
+                '--verbose',
+                help='Display using verbose configuration.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--abspath',
+                help='Include all components when displaying regmap object paths. Default behaviour'
+                     ' is to print paths relative to the selected object.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--formatter',
+                help='Select the format of displayed output.',
+                type=click.Choice(tuple(sorted(variable.FORMATTERS))),
+                default='table',
+            ),
+            click.option(
+                '--path-sort',
+                help='Sort displayed output by object path. Default is to sort by offset.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--ignore-access',
+                help='Ignore access permissions on registers and fields when displaying output.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--hex-grouping',
+                help='Display hexadecimal values with an "_" separating every group of 4 digits.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--bits-grouping',
+                help='Display bits values with an "_" separating every group of 4 digits.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--show-column-layout',
+                help='Display the default column layout used by the table formatter.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--column-layout',
+                help='Specify a custom column layout to be used by the table formatter.',
+            ),
+        )
+
+        for opt in reversed(options):
+            main = opt(main)
+        return main
+
+    def process_options(self, kargs):
+        kargs = dict(kargs)
+        if kargs['column_layout'] is None:
+            del kargs['column_layout']
+        return kargs
+
+    def _complete(self, incomplete):
+        # Extract the last path component on which completion is being attempted.
+        parts = []
+        match = self.PARTIAL_RE.match(incomplete)
+        if match is not None:
+            stem = match['stem']
+            name = match['name']
+            subs = match['subs']
+            if subs:
+                parts.append((name, subs))
+                partial_name = ''
+            else:
+                partial_name = name
+        else:
+            stem = incomplete
+            partial_name = ''
+
+        # Extract the path components leading up to the completion being attempted.
+        while True:
+            match = self.PATH_RE.match(stem)
+            if match is None:
+                break
+
+            stem = match['stem']
+            parts.append((match['name'], match['subs']))
+
+        # Perform the path lookup to find the namespace to query for the completion.
+        obj = self._mod
+        for name, subs in reversed(parts):
+            try:
+                obj = getattr(obj, name)
+            except AttributeError:
+                return []
+
+            for _ in range(subs.count('[')):
+                try:
+                    # The index doesn't matter for completion, just need an object in order to
+                    # continue the chain of lookups.
+                    obj = obj[0]
+                except IndexError:
+                    return []
+
+        # Build up the list of matches for the completion.
+        matches = [name for name in dir(obj) if name[:2] != '__' and name.startswith(partial_name)]
+        if matches:
+            if len(matches) == 1 and len(dir(getattr(obj, matches[0]))) > 0:
+                matches.append(matches[0] + '.')
+
+            nstrip = len(partial_name)
+            matches = [incomplete + m[nstrip:] for m in matches]
+        return [click.shell_completion.CompletionItem(m) for m in matches]
+
+    def _path_complete(self, ctx, param, incomplete):
         # Run the main command to load the regmap and insert variables into the environment.
-        # Note that this completion is current slowed due to the lack of caching of the regmap
-        # specification. Instantiating the entire specification repeatedly is time consuming and
-        # could be improved.
         main = ctx.find_root()
         kargs = dict(main.params)
         kargs['test_io'] = 'zero'
-        main.invoke(main.command, **kargs)
 
-        interp = jedi.Interpreter(incomplete, [self._namespace])
-        return [
-            click.shell_completion.CompletionItem(incomplete + compl.complete)
-            for compl in interp.complete()
-        ]
+        self.in_completion = True
+        main.invoke(main.command, **kargs) # TODO: can flag be passed via kargs instead?
+        self.in_completion = False
+
+        return self._complete(incomplete)
 
     def _add_click_commands(self, parent):
         @parent.command()
-        @click.argument('object-paths', nargs=-1)
+        @click.argument('object-paths', nargs=-1, shell_complete=self._path_complete)
         def dump(object_paths):
             '''
             Read and display selected sub-tree(s) from loaded register map specifications. Without
@@ -297,7 +407,7 @@ class ClickEnvironment(Environment):
             self.dump(object_paths)
 
         @parent.command()
-        @click.argument('expressions', nargs=-1, shell_complete=self._eval_expr_complete)
+        @click.argument('expressions', nargs=-1, shell_complete=self._path_complete)
         def eval(expressions):
             '''
             Evaluate a sequence of Python expressions within the context of the loaded register
@@ -328,29 +438,26 @@ class ClickEnvironment(Environment):
             '''
             self.python_shell()
 
-        if IPython is not None:
-            @shell.command()
-            def ipython():
-                '''
-                Enter the IPython shell.
-                '''
-                self.ipython_shell()
+        @shell.command()
+        def ipython():
+            '''
+            Enter the IPython shell.
+            '''
+            self.ipython_shell()
 
-        if _ptpython is not None:
-            @shell.command()
-            def ptpython():
-                '''
-                Enter the Prompt Toolkit shell.
-                '''
-                self.ptpython_shell()
+        @shell.command()
+        def ptpython():
+            '''
+            Enter the Prompt Toolkit shell.
+            '''
+            self.ptpython_shell()
 
-        if _ptipython is not None:
-            @shell.command()
-            def ptipython():
-                '''
-                Enter the Prompt Toolkit IPython shell.
-                '''
-                self.ptipython_shell()
+        @shell.command()
+        def ptipython():
+            '''
+            Enter the Prompt Toolkit IPython shell.
+            '''
+            self.ptipython_shell()
 
         @parent.group()
         def completions():

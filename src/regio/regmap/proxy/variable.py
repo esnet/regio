@@ -121,13 +121,8 @@ class Variable:
         return default
 
     def __str__(self):
-        FORMATTERS = {
-            'display': DisplayFormatter,
-            'path': PathFormatter,
-        }
-
         # Get the formatter class to use.
-        name = self.config_get('formatter', 'display')
+        name = self.config_get('formatter', 'table')
         if name not in FORMATTERS:
             choices = ' | '.join(sorted(FORMATTERS))
             raise ValueError(f'Unknown variable formatter "{name}". Must be one of: {choices}.')
@@ -149,6 +144,9 @@ class Formatter:
         self.abspath = var.config_get('abspath', False)
         self.qualstem, self.qualroot, self.qualstart = var.config_get('qualbase', (None, None, 0))
 
+        # Sort lexicographically or leave in the order defined in the regmap specification.
+        self.path_sort = self.var.config_get('path_sort', False)
+
         # Determine the maximum number of nibbles for consistent offset display.
         region = var._node.region
         self.offset_units = 'Bytes' # TODO: Get from low-level IO.
@@ -156,6 +154,7 @@ class Formatter:
         self.offset_nibbles = ((region.size * self.offset_scale).bit_length() + 4 - 1) // 4
 
         # Determine the formatting for values.
+        self.ignore_access = var.config_get('ignore_access', False)
         self.with_hex_grouping = var.config_get('hex_grouping', False)
         self.with_bits_grouping = var.config_get('bits_grouping', True)
 
@@ -165,13 +164,14 @@ class Formatter:
             return qualname
         return self.qualstem + ('.' + qualname if qualname else '')
 
-    def rel_qualname(self, node):
-        if not self.is_group and node is self.root:
-            return f'. [=> {self.abs_qualname(node)}]'
-        return '.' + node.qualname_from(len(self.root.path))
+    def rel_qualname(self, node, is_root=True):
+        start = len(self.root.path)
+        if is_root:
+            return node.qualname_from(start - 1)
+        return '.' + node.qualname_from(start)
 
-    def qualname(self, node):
-        return self.abs_qualname(node) if self.abspath else self.rel_qualname(node)
+    def qualname(self, node, is_root=True):
+        return self.abs_qualname(node) if self.abspath else self.rel_qualname(node, is_root)
 
     def size(self, value):
         value *= self.offset_scale
@@ -193,7 +193,7 @@ class Formatter:
         else:
             width = region.nibbles
             grouping = ''
-        return f'0x{value:0{width}{grouping}x}'
+        return '0x' + ('-' * width if value is None else f'{value:0{width}{grouping}x}')
 
     def value_bits(self, value, region):
         if self.with_bits_grouping:
@@ -204,12 +204,13 @@ class Formatter:
         else:
             width = region.width
             grouping = ''
-        return f'0b{value:0{width}{grouping}b}'
+        return '0b' + ('-' * width if value is None else f'{value:0{width}{grouping}b}')
 
     def update_widths(self, widths, data):
         for key, value in data.items():
-            wkey = f'w{key}'
-            widths[wkey] = max(len(value), widths.get(wkey, 0))
+            if isinstance(value, str):
+                wkey = f'w{key}'
+                widths[wkey] = max(len(value), widths.get(wkey, 0))
         return data
 
     def __str__(self):
@@ -227,13 +228,17 @@ class Formatter:
         row_data = []
         for node in nodes:
             # Format the node.
-            col_data = ctx.new_variable(node, None, ...)._format_node(self)
+            col_data = ctx.new_variable(node, None, ...)._format_node(self, True)
             row_data.append(self.update_widths(col_widths, col_data))
 
             # Gather formatting data for each child node in the hierarchy.
             for child in node.descendants:
-                col_data = ctx.new_variable(child, None, ...)._format_node(self)
+                col_data = ctx.new_variable(child, None, ...)._format_node(self, False)
                 row_data.append(self.update_widths(col_widths, col_data))
+
+        # Sort the row data by path instead of by node ordering the hierarchy.
+        if self.path_sort:
+            row_data = sorted(row_data, key=lambda d: d['path'])
 
         # Generate a string for each row.
         rows = self.format_rows(row_data, col_widths)
@@ -242,8 +247,9 @@ class Formatter:
         return '\n'.join(rows)
 
 #---------------------------------------------------------------------------------------------------
-class DisplayFormatter(Formatter):
+class TableFormatter(Formatter):
     COLUMN_HEADINGS = {
+        'access': 'Access',
         'offset': 'Offset',
         'path': 'Path',
         'range': 'Range',
@@ -259,6 +265,7 @@ class DisplayFormatter(Formatter):
     }
 
     COLUMN_FORMATS = {
+        'access': '{access:{aaccess}{waccess}}',
         'offset': '{offset:{aoffset}{woffset}}',
         'path': '{path:{apath}{wpath}}',
         'range': '{range:{arange}{wrange}}',
@@ -268,9 +275,10 @@ class DisplayFormatter(Formatter):
         'value_hex': '{value_hex:{avalue_hex}{wvalue_hex}}',
     }
 
-    COLUMN_LAYOUT_VERBOSE = 'rs//|,t/>/|,s/>/|,o/>/|,r/^/=,vh/</:,vb/</|,p/</,re//|'
+    COLUMN_LAYOUT_VERBOSE = 'rs//|,t/>/|,a/^/|,s/>/|,o/>/|,r/^/=,vh/</:,vb/</|,p/</,re//|'
     COLUMN_LAYOUT = 'rs//|,s/>/|,o/>/|,r/^/|,vh/</|,p/</,re//|'
     COLUMN_MAP = {
+        'a': 'access',
         'o': 'offset',
         'p': 'path',
         'r': 'range',
@@ -382,18 +390,31 @@ class PathFormatter(Formatter):
         # Force qualnames to be absolute.
         self.abspath = True
 
-        # Sort lexicographically or leave in the order defined in the regmap specification.
-        self.path_sort = self.var.config_get('path_sort', False)
+    def format_rows(self, row_data, col_widths):
+        return [col_data['path'] for col_data in row_data]
+
+#---------------------------------------------------------------------------------------------------
+class JsonFormatter(Formatter):
+    def __init__(self, *pargs, **kargs):
+        super().__init__(*pargs, **kargs)
+
+        # Force qualnames to be absolute.
+        self.abspath = True
 
     def format_rows(self, row_data, col_widths):
-        rows = [col_data['path'] for col_data in row_data]
-        if self.path_sort:
-            return sorted(rows)
-        return rows
+        import json
+        return [json.dumps(row_data, indent=4)]
+
+#---------------------------------------------------------------------------------------------------
+FORMATTERS = {
+    'json': JsonFormatter,
+    'path': PathFormatter,
+    'table': TableFormatter,
+}
 
 #---------------------------------------------------------------------------------------------------
 class StructureFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formatter, is_root=True):
         ntype = type(self._node)
         if ntype is address.Node:
             type_ = 'Address Space'
@@ -412,45 +433,84 @@ class StructureFormatter:
 
         return {
             'type': type_,
-            'path': formattter.qualname(self._node),
-            'size': formattter.size(region.size),
-            'offset': formattter.offset_range(start, end),
+            'path': formatter.qualname(self._node, is_root),
+            'size': formatter.size(region.size),
+            'offset': formatter.offset_range(start, end),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
 class ArrayFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
         start = region.offset.absolute
         end = region.offset.absolute + region.size - 1
-        qualname = formattter.qualname(self._node)
+        qualname = formatter.qualname(self._node, is_root)
+        subscripts = ''.join(f'[:{f}]' for f in self._node.indexer.fields)
 
         return {
             'type': 'Array',
-            'path': f'{qualname}{[*self._node.indexer.fields]}',
-            'size': formattter.size(region.size),
-            'offset': formattter.offset_range(start, end),
+            'path': f'{qualname}{subscripts}',
+            'size': formatter.size(region.size),
+            'offset': formatter.offset_range(start, end),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
 class RegisterFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
-        value = int(self.proxy)
+        access = self._node.config.access
+        value = int(self.proxy) if formatter.ignore_access or access.is_readable else None
 
         return {
             'type': 'Register',
-            'path': formattter.qualname(self._node),
-            'size': formattter.size(region.size),
-            'offset': formattter.offset(region.offset.absolute),
-            'value_hex': formattter.value_hex(value, region),
+            'access': self._node.config.access.name,
+            'path': formatter.qualname(self._node, is_root),
+            'size': formatter.size(region.size),
+            'offset': formatter.offset(region.offset.absolute),
+            'value_hex': formatter.value_hex(value, region),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'access': self._node.config.access.value,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'value': value,
+                'width': region.width,
+                'mask': region.mask,
+                'shift': region.shift,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
 class FieldFormatter:
-    def _format_node(self, formattter):
+    def _format_node(self, formatter, is_root=True):
         region = self._node.region
-        value = int(self.proxy)
+        access = self._node.config.access
+        value = int(self.proxy) if formatter.ignore_access or access.is_readable else None
 
         range_ = f'{region.pos.absolute}'
         if region.width > 1:
@@ -459,10 +519,27 @@ class FieldFormatter:
 
         return {
             'type': 'Field',
-            'path': formattter.qualname(self._node),
+            'access': self._node.config.access.name,
+            'path': formatter.qualname(self._node, is_root),
             'range': f'[{range_}]',
-            'value_hex': formattter.value_hex(value, region),
-            'value_bits': formattter.value_bits(value, region),
+            'value_hex': formatter.value_hex(value, region),
+            'value_bits': formatter.value_bits(value, region),
+            'data': {
+                'oid': region.oid,
+                'ordinal': region.ordinal,
+                'register': region.register,
+                'data_width': region.data_width,
+                'access': self._node.config.access.value,
+                'offset': region.offset.absolute,
+                'size': region.size,
+                'value': value,
+                'pos': region.pos.absolute,
+                'width': region.width,
+                'mask': region.mask,
+                'shift': region.shift,
+                'nibbles': region.nibbles,
+                'octets': region.octets,
+            },
         }
 
 #---------------------------------------------------------------------------------------------------
