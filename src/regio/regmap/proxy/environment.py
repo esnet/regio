@@ -275,8 +275,10 @@ class ClickEnvironment(Environment):
             ),
             click.option(
                 '--abspath',
-                help='Include all components when displaying regmap object paths. Default behaviour'
-                     ' is to print paths relative to the selected object.',
+                help='''
+                Include all path components when displaying regmap objects. Default behaviour is to
+                print paths relative to the selected object.
+                ''',
                 is_flag=True,
                 default=False,
             ),
