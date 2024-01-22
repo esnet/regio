@@ -311,6 +311,12 @@ class ClickEnvironment(Environment):
                 default=False,
             ),
             click.option(
+                '--lsb-first',
+                help='Display bit fields with the least significant bit first (bit 0 first).',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
                 '--show-column-layout',
                 help='Display the default column layout used by the table formatter.',
                 is_flag=True,

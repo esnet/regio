@@ -2,7 +2,7 @@
 __all__ = ()
 
 from ..io import io
-from ..spec import address, array, field, register, structure, union
+from ..spec import address, array, register, structure, union
 
 #---------------------------------------------------------------------------------------------------
 class Variable:
@@ -158,6 +158,9 @@ class Formatter:
         self.with_hex_grouping = var.config_get('hex_grouping', False)
         self.with_bits_grouping = var.config_get('bits_grouping', True)
 
+        # Determine the order when displaying fields.
+        self.lsb_first = var.config_get('lsb_first', False)
+
     def abs_qualname(self, node):
         qualname = node.qualname_from(self.qualstart)
         if self.qualstem is None:
@@ -223,6 +226,15 @@ class Formatter:
         # - If the variable was created on a singular node, use it.
         nodes = chain if chain.is_group else (root,)
 
+        # Setup an iterator for recursing depth-first through the regmap hierarchy.
+        def iter_nodes(node):
+            iter_fn = reversed if isinstance(node, register.Node) and not self.lsb_first else iter
+            for child in iter_fn(node.children):
+                yield child
+
+                for gchild in iter_nodes(child):
+                    yield gchild
+
         # Gather formatting data for all nodes in the variable's hierarchy.
         col_widths = {}
         row_data = []
@@ -232,7 +244,7 @@ class Formatter:
             row_data.append(self.update_widths(col_widths, col_data))
 
             # Gather formatting data for each child node in the hierarchy.
-            for child in node.descendants:
+            for child in iter_nodes(node):
                 col_data = ctx.new_variable(child, None, ...)._format_node(self, False)
                 row_data.append(self.update_widths(col_widths, col_data))
 
