@@ -29,7 +29,14 @@ IO_TYPES = {
 }
 
 #---------------------------------------------------------------------------------------------------
-@click.group(invoke_without_command=True)
+@click.group(
+    invoke_without_command=True,
+    add_help_option=False,
+)
+@click.help_option(
+    '--help', '-h',
+    help='Show this message and exit.',
+)
 @click.option(
     '-p', '--pci-id', 'pci_ids',
     help='Select PCIe device ID(s) to use for IO (domain:bus:device.function).',
