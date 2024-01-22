@@ -121,14 +121,8 @@ class Variable:
         return default
 
     def __str__(self):
-        FORMATTERS = {
-            'display': DisplayFormatter,
-            'json': JsonFormatter,
-            'path': PathFormatter,
-        }
-
         # Get the formatter class to use.
-        name = self.config_get('formatter', 'display')
+        name = self.config_get('formatter', 'table')
         if name not in FORMATTERS:
             choices = ' | '.join(sorted(FORMATTERS))
             raise ValueError(f'Unknown variable formatter "{name}". Must be one of: {choices}.')
@@ -149,6 +143,9 @@ class Formatter:
         # Determine the display format for the qualified name of all the nodes.
         self.abspath = var.config_get('abspath', False)
         self.qualstem, self.qualroot, self.qualstart = var.config_get('qualbase', (None, None, 0))
+
+        # Sort lexicographically or leave in the order defined in the regmap specification.
+        self.path_sort = self.var.config_get('path_sort', False)
 
         # Determine the maximum number of nibbles for consistent offset display.
         region = var._node.region
@@ -239,6 +236,10 @@ class Formatter:
                 col_data = ctx.new_variable(child, None, ...)._format_node(self, False)
                 row_data.append(self.update_widths(col_widths, col_data))
 
+        # Sort the row data by path instead of by node ordering the hierarchy.
+        if self.path_sort:
+            row_data = sorted(row_data, key=lambda d: d['path'])
+
         # Generate a string for each row.
         rows = self.format_rows(row_data, col_widths)
 
@@ -246,7 +247,7 @@ class Formatter:
         return '\n'.join(rows)
 
 #---------------------------------------------------------------------------------------------------
-class DisplayFormatter(Formatter):
+class TableFormatter(Formatter):
     COLUMN_HEADINGS = {
         'access': 'Access',
         'offset': 'Offset',
@@ -389,14 +390,8 @@ class PathFormatter(Formatter):
         # Force qualnames to be absolute.
         self.abspath = True
 
-        # Sort lexicographically or leave in the order defined in the regmap specification.
-        self.path_sort = self.var.config_get('path_sort', False)
-
     def format_rows(self, row_data, col_widths):
-        rows = [col_data['path'] for col_data in row_data]
-        if self.path_sort:
-            return sorted(rows)
-        return rows
+        return [col_data['path'] for col_data in row_data]
 
 #---------------------------------------------------------------------------------------------------
 class JsonFormatter(Formatter):
@@ -409,6 +404,13 @@ class JsonFormatter(Formatter):
     def format_rows(self, row_data, col_widths):
         import json
         return [json.dumps(row_data, indent=4)]
+
+#---------------------------------------------------------------------------------------------------
+FORMATTERS = {
+    'json': JsonFormatter,
+    'path': PathFormatter,
+    'table': TableFormatter,
+}
 
 #---------------------------------------------------------------------------------------------------
 class StructureFormatter:

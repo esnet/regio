@@ -280,6 +280,46 @@ class ClickEnvironment(Environment):
                 is_flag=True,
                 default=False,
             ),
+            click.option(
+                '--formatter',
+                help='Select the format of displayed output.',
+                type=click.Choice(tuple(sorted(variable.FORMATTERS))),
+                default='table',
+            ),
+            click.option(
+                '--path-sort',
+                help='Sort displayed output by object path. Default is to sort by offset.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--ignore-access',
+                help='Ignore access permissions on registers and fields when displaying output.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--hex-grouping',
+                help='Display hexadecimal values with an "_" separating every group of 4 digits.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--bits-grouping',
+                help='Display bits values with an "_" separating every group of 4 digits.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--show-column-layout',
+                help='Display the default column layout used by the table formatter.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--column-layout',
+                help='Specify a custom column layout to be used by the table formatter.',
+            ),
         )
 
         for opt in reversed(options):
@@ -287,7 +327,10 @@ class ClickEnvironment(Environment):
         return main
 
     def process_options(self, kargs):
-        return dict(kargs)
+        kargs = dict(kargs)
+        if kargs['column_layout'] is None:
+            del kargs['column_layout']
+        return kargs
 
     def _complete(self, incomplete):
         # Extract the last path component on which completion is being attempted.
