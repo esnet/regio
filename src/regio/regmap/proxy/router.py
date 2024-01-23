@@ -312,6 +312,22 @@ class ByIndexGetitem:
         return self.___context___.new_proxy(child, chain)
 
 #---------------------------------------------------------------------------------------------------
+def by_index_iterator(proxy, reversed_):
+    iter_fn = reversed if reversed_ else iter
+    for child in iter_fn(proxy.___node___.children):
+        yield proxy.___context___.new_proxy(child, proxy.___chain___)
+
+class ByIndexIterable:
+    def __len__(self):
+        return len(self.___node___.children)
+
+    def __iter__(self):
+        return by_index_iterator(self, False)
+
+    def __reversed__(self):
+        return by_index_iterator(self, True)
+
+#---------------------------------------------------------------------------------------------------
 class ByRegisterGetitem:
     def __getitem__(self, key):
         raise NotImplementedError
@@ -341,8 +357,8 @@ class ByAddressGetitem:
 class ByPathName(Router, ByMemberDir, ByMemberGetattr): ...
 class ByPathNameGroup(RouterGroup, ByMemberDir, ByMemberGetattr): ...
 # - Numeric tuple (multi-dimensional) indexing routed through a sequence node.
-class ByPathIndex(Router, EmptyDir, ByIndexGetitem): ... # Non-iterable indexing.
-class ByPathIndexGroup(RouterGroup, EmptyDir, ByIndexGetitem): ... # Iterable indexing.
+class ByPathIndex(Router, EmptyDir, ByIndexGetitem, ByIndexIterable): ...
+class ByPathIndexGroup(RouterGroup, EmptyDir, ByIndexGetitem): ...
 
 # Routing by slot consists of:
 # - Numeric indexing routed through a node's member table.
