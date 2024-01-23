@@ -207,27 +207,6 @@ class ByMemberGetattr:
         return self.___context___.new_proxy(meta.data_get(spec), chain)
 
 #---------------------------------------------------------------------------------------------------
-class ByMemberGetitem:
-    def __getitem__(self, key):
-        # Perform the lookup. Key validation and slicing is left to the standard tuple().
-        member = self.___node___.members[key]
-
-        # Chain to the router on the retrieved specification object(s).
-        if isinstance(member, collections.abc.Sequence):
-            # Index is a slice.
-            # TODO: Make this a container/iterator object instead of a list.
-            return [
-                self.___context___.new_proxy(meta.data_get(m.value), self.___chain___)
-                for m in member
-            ]
-
-        # Index is singular.
-        return self.___context___.new_proxy(meta.data_get(member.value), self.___chain___)
-
-    def __len__(self):
-        return len(self.___node___.members)
-
-#---------------------------------------------------------------------------------------------------
 # Indexing formats:
 # - Refer to https://docs.python.org/3/reference/datamodel.html#sequences
 # - Uni-dimensional indexing.
@@ -321,30 +300,6 @@ class ByIndexIterable:
         return by_index_iterator(self, True)
 
 #---------------------------------------------------------------------------------------------------
-class ByRegisterGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
-
-    def __len__(self):
-        raise NotImplementedError
-
-#---------------------------------------------------------------------------------------------------
-class ByWordGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
-
-    def __len__(self):
-        raise NotImplementedError
-
-#---------------------------------------------------------------------------------------------------
-class ByAddressGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
-
-    def __len__(self):
-        raise NotImplementedError
-
-#---------------------------------------------------------------------------------------------------
 # Routing by path consists of:
 # - Attribute name lookups routed through a node's member namespace.
 class ByPathName(Router, ByMemberDir, ByMemberGetattr): ...
@@ -352,21 +307,3 @@ class ByPathNameGroup(RouterGroup, ByMemberDir, ByMemberGetattr): ...
 # - Numeric tuple (multi-dimensional) indexing routed through a sequence node.
 class ByPathIndex(Router, EmptyDir, ByIndexGetitem, ByIndexIterable): ...
 class ByPathIndexGroup(RouterGroup, EmptyDir, ByIndexGetitem): ...
-
-# Routing by slot consists of:
-# - Numeric indexing routed through a node's member table.
-class BySlotMember(Router, EmptyDir, ByMemberGetitem): ...
-# - Numeric tuple (multi-dimensional) indexing routed through a sequence node.
-class BySlotIndex(Router, EmptyDir, ByIndexGetitem): ...
-
-# Routing by register consists of:
-# - Numeric indexing routed through a virtual sequence of registers.
-class ByRegister(Router, EmptyDir, ByRegisterGetitem): ...
-
-# Routing by word consists of:
-# - Numeric indexing routed through a virtual sequence of data words.
-class ByWord(Router, EmptyDir, ByWordGetitem): ...
-
-# Routing by address consists of:
-# - Numeric indexing routed through a virtual sequence of address cells.
-class ByAddress(Router, EmptyDir, ByAddressGetitem): ...
