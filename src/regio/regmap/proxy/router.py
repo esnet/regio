@@ -185,10 +185,15 @@ class ByMemberDir:
         return self.___node___.members_map.keys()
 
 #---------------------------------------------------------------------------------------------------
-class BySpecGetattr:
+class ByMemberGetattr:
     def __getattr__(self, name):
         node = self.___node___
         chain = self.___chain___
+
+        # Restrict the attribute name to members only.
+        # TODO: Support symbol visibility concept: public (default), hidden and transparent
+        if name not in node.members_map:
+            raise AttributeError(f'Attribute {name!r} is not a member name of {node.spec!r}.')
 
         # Perform the lookup.
         spec = getattr(node.spec, name)
@@ -200,18 +205,6 @@ class BySpecGetattr:
 
         # Chain to a router on the retrieved specification object.
         return self.___context___.new_proxy(meta.data_get(spec), chain)
-
-#---------------------------------------------------------------------------------------------------
-class ByMemberGetattr(BySpecGetattr):
-    def __getattr__(self, name):
-        # Restrict the attribute name to members only.
-        # TODO: Support symbol visibility concept: public (default), hidden and transparent
-        node = self.___node___
-        if name not in node.members_map:
-            raise AttributeError(f'Attribute {name!r} is not a member name of {node.spec!r}.')
-
-        # Perform the lookup.
-        return super().__getattr__(name)
 
 #---------------------------------------------------------------------------------------------------
 class ByMemberGetitem:
