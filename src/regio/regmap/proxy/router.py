@@ -185,10 +185,15 @@ class ByMemberDir:
         return self.___node___.members_map.keys()
 
 #---------------------------------------------------------------------------------------------------
-class BySpecGetattr:
+class ByMemberGetattr:
     def __getattr__(self, name):
         node = self.___node___
         chain = self.___chain___
+
+        # Restrict the attribute name to members only.
+        # TODO: Support symbol visibility concept: public (default), hidden and transparent
+        if name not in node.members_map:
+            raise AttributeError(f'Attribute {name!r} is not a member name of {node.spec!r}.')
 
         # Perform the lookup.
         spec = getattr(node.spec, name)
@@ -200,39 +205,6 @@ class BySpecGetattr:
 
         # Chain to a router on the retrieved specification object.
         return self.___context___.new_proxy(meta.data_get(spec), chain)
-
-#---------------------------------------------------------------------------------------------------
-class ByMemberGetattr(BySpecGetattr):
-    def __getattr__(self, name):
-        # Restrict the attribute name to members only.
-        # TODO: Support symbol visibility concept: public (default), hidden and transparent
-        node = self.___node___
-        if name not in node.members_map:
-            raise AttributeError(f'Attribute {name!r} is not a member name of {node.spec!r}.')
-
-        # Perform the lookup.
-        return super().__getattr__(name)
-
-#---------------------------------------------------------------------------------------------------
-class ByMemberGetitem:
-    def __getitem__(self, key):
-        # Perform the lookup. Key validation and slicing is left to the standard tuple().
-        member = self.___node___.members[key]
-
-        # Chain to the router on the retrieved specification object(s).
-        if isinstance(member, collections.abc.Sequence):
-            # Index is a slice.
-            # TODO: Make this a container/iterator object instead of a list.
-            return [
-                self.___context___.new_proxy(meta.data_get(m.value), self.___chain___)
-                for m in member
-            ]
-
-        # Index is singular.
-        return self.___context___.new_proxy(meta.data_get(member.value), self.___chain___)
-
-    def __len__(self):
-        return len(self.___node___.members)
 
 #---------------------------------------------------------------------------------------------------
 # Indexing formats:
@@ -312,28 +284,20 @@ class ByIndexGetitem:
         return self.___context___.new_proxy(child, chain)
 
 #---------------------------------------------------------------------------------------------------
-class ByRegisterGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
+def by_index_iterator(proxy, reversed_):
+    iter_fn = reversed if reversed_ else iter
+    for child in iter_fn(proxy.___node___.children):
+        yield proxy.___context___.new_proxy(child, proxy.___chain___)
 
+class ByIndexIterable:
     def __len__(self):
-        raise NotImplementedError
+        return len(self.___node___.children)
 
-#---------------------------------------------------------------------------------------------------
-class ByWordGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
+    def __iter__(self):
+        return by_index_iterator(self, False)
 
-    def __len__(self):
-        raise NotImplementedError
-
-#---------------------------------------------------------------------------------------------------
-class ByAddressGetitem:
-    def __getitem__(self, key):
-        raise NotImplementedError
-
-    def __len__(self):
-        raise NotImplementedError
+    def __reversed__(self):
+        return by_index_iterator(self, True)
 
 #---------------------------------------------------------------------------------------------------
 # Routing by path consists of:
@@ -341,23 +305,5 @@ class ByAddressGetitem:
 class ByPathName(Router, ByMemberDir, ByMemberGetattr): ...
 class ByPathNameGroup(RouterGroup, ByMemberDir, ByMemberGetattr): ...
 # - Numeric tuple (multi-dimensional) indexing routed through a sequence node.
-class ByPathIndex(Router, EmptyDir, ByIndexGetitem): ... # Non-iterable indexing.
-class ByPathIndexGroup(RouterGroup, EmptyDir, ByIndexGetitem): ... # Iterable indexing.
-
-# Routing by slot consists of:
-# - Numeric indexing routed through a node's member table.
-class BySlotMember(Router, EmptyDir, ByMemberGetitem): ...
-# - Numeric tuple (multi-dimensional) indexing routed through a sequence node.
-class BySlotIndex(Router, EmptyDir, ByIndexGetitem): ...
-
-# Routing by register consists of:
-# - Numeric indexing routed through a virtual sequence of registers.
-class ByRegister(Router, EmptyDir, ByRegisterGetitem): ...
-
-# Routing by word consists of:
-# - Numeric indexing routed through a virtual sequence of data words.
-class ByWord(Router, EmptyDir, ByWordGetitem): ...
-
-# Routing by address consists of:
-# - Numeric indexing routed through a virtual sequence of address cells.
-class ByAddress(Router, EmptyDir, ByAddressGetitem): ...
+class ByPathIndex(Router, EmptyDir, ByIndexGetitem, ByIndexIterable): ...
+class ByPathIndexGroup(RouterGroup, EmptyDir, ByIndexGetitem): ...

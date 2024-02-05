@@ -275,8 +275,10 @@ class ClickEnvironment(Environment):
             ),
             click.option(
                 '--abspath',
-                help='Include all components when displaying regmap object paths. Default behaviour'
-                     ' is to print paths relative to the selected object.',
+                help='''
+                Include all path components when displaying regmap objects. Default behaviour is to
+                print paths relative to the selected object.
+                ''',
                 is_flag=True,
                 default=False,
             ),
@@ -307,6 +309,12 @@ class ClickEnvironment(Environment):
             click.option(
                 '--bits-grouping',
                 help='Display bits values with an "_" separating every group of 4 digits.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--lsb-first',
+                help='Display bit fields with the least significant bit first (bit 0 first).',
                 is_flag=True,
                 default=False,
             ),
