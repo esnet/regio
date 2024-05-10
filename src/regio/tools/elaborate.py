@@ -145,79 +145,83 @@ def elaborate_fields(flds_in, defaults):
 
     return flds, fld_offset
 
-def elaborate_regs(regs_in):
+def elaborate_register(reg, offset, defaults, parent):
+    # Set up a new register based on current context
+    rnew = defaults.copy()
+    rnew.update({
+        'offset': offset,
+    })
+
+    if 'meta' in reg:
+        meta = reg['meta']
+        if 'pad_until' in meta:
+            if offset > meta['pad_until']:
+                # Negative padding!
+                print("Negative padding requested at offset", offset)
+                sys.exit(1)
+            elif offset == meta['pad_until']:
+                # No padding required
+                print("Padding not required at offset", offset)
+                sys.exit(1)
+            else:
+                rnew.update({
+                    'name':   "anon{:03d}".format(parent['synth_reg_cnt']),
+                    'access': 'none',
+                    'width':  8,
+                    'count':  (meta['pad_until'] - offset)
+                })
+                parent['synth_reg_cnt'] += 1
+    else:
+        # merge in the yaml register definition
+        rnew.update(reg)
+        if 'fields' in rnew:
+            # Elaborate the fields
+            field_defaults = {
+                'access': rnew['access']
+            }
+            rnew['fields'], rnew['computed_width'] = elaborate_fields(rnew['fields'], field_defaults)
+
+    elaborate_name(rnew)
+
+    return rnew
+
+def elaborate_block(blk):
+    elaborate_name(blk)
+
     # Set up some default defaults
-    defaults = {
+    reg_defaults = {
         'count' : 1,
         'access' : 'ro',
         'init' : 0,
     }
 
+    # Always ensure that every block has at least 1 register so we never generate empty struct
+    # def'ns in C or C++. Make up a fake meta record that pads by a single byte which will auto-
+    # generate an anon register in this block
+    regs_in = blk['regs']
     if len(regs_in) == 0:
-        # always ensure that every block has at least 1 register so we never generate empty struct def'ns in C or C++
-        # make up a fake meta record that pads by a single byte which will auto-generate an anon register in this block
         regs_in.append({
             'meta': {
                 'pad_until': 1,
             },
         })
 
+    # Elaborate the regs
+    blk['synth_reg_cnt'] = 0
     reg_offset = 0
     regs = []
-    synth_reg_cnt = 0
     for reg in regs_in:
         if 'default' in reg:
-            defaults.update(reg['default'])
+            reg_defaults.update(reg['default'])
             continue
 
-        # Set up a new register based on current context
-        rnew = {}
-        rnew.update(defaults)
-        rnew.update({
-            'offset': reg_offset,
-        })
-
-        if 'meta' in reg:
-            meta = reg['meta']
-            if 'pad_until' in meta:
-                if reg_offset > meta['pad_until']:
-                    # Negative padding!
-                    print("Negative padding requested at offset", reg_offset)
-                    sys.exit(1)
-                elif reg_offset == meta['pad_until']:
-                    # No padding required
-                    print("Padding not required at offset", reg_offset)
-                    sys.exit(1)
-                else:
-                    rnew.update({
-                        'name':   "anon{:03d}".format(synth_reg_cnt),
-                        'access': 'none',
-                        'width': 8,
-                        'count':  (meta['pad_until'] - reg_offset)
-                    })
-                    synth_reg_cnt += 1
-        else:
-            # merge in the yaml register definition
-            rnew.update(reg)
-            if 'fields' in rnew:
-                # Elaborate the fields
-                field_defaults = {
-                    'access': rnew['access']
-                }
-                rnew['fields'], rnew['computed_width'] = elaborate_fields(rnew['fields'], field_defaults)
-
-        elaborate_name(rnew)
+        rnew = elaborate_register(reg, reg_offset, reg_defaults, blk)
         regs.append(rnew)
         reg_offset += (rnew['width'] * rnew['count']) // 8
 
-    return regs, reg_offset
-
-
-def elaborate_block(blk):
-    elaborate_name(blk)
-
-    # Elaborate the regs
-    blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
+    blk['regs'] = regs
+    blk['computed_size'] = reg_offset
+    del blk['synth_reg_cnt']
 
 def elaborate_interface(intf, idx, parent):
     if not 'address' in intf:
