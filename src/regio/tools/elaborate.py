@@ -241,40 +241,44 @@ def elaborate_interface(intf, idx, parent):
 
     intf['regions'] = []
     intf['padding'] = []
+    suffix = intf.get('suffix', '')
     if 'decoder' in intf:
-        # bubble the regions upward, adding in this interface's offset
-        for region in intf['decoder']['regions']:
+        dec = intf['decoder']
+        if dec.get('visible', False):
             new_region = {
-                'name'       : region['name'],
-                'name_lower' : region['name_lower'],
-                'name_upper' : region['name_upper'],
-                'offset'     : intf['address'] + region['offset'],
-                'block'      : region['block'],
-                'size'       : region['size'],
+                # use interface name, or fall back to decoder name
+                # append any suffixes defined at this interface
+                'name'    : intf.get('name', dec.get('name')) + suffix,
+                'offset'  : intf['address'],
+                'decoder' : dec,
+                'size'    : dec['size'],
             }
-            if 'suffix' in intf:
-                new_region['name'] += intf['suffix']
-                elaborate_name(new_region)
+            elaborate_name(new_region)
             intf['regions'].append(new_region)
+        else:
+            # bubble the regions upward, adding in this interface's offset
+            for region in dec['regions']:
+                new_region = region.copy()
+                new_region['offset'] += intf['address']
+                new_region['name'] += suffix
+                elaborate_name(new_region)
+                intf['regions'].append(new_region)
 
-        # bubble the padding upward, adding in this interface's offset
-        for pad in intf['decoder']['padding']:
-            intf['padding'].append({
-                'offset' : intf['address'] + pad['offset'],
-                'size'   : pad['size'],
-            })
-
+            # bubble the padding upward, adding in this interface's offset
+            for pad in dec['padding']:
+                new_pad = pad.copy()
+                new_pad['offset'] += intf['address']
+                intf['padding'].append(new_pad)
     elif 'block' in intf:
         blk = intf['block']
         new_region = {
+            # use interface name, or fall back to block name
+            # append any suffixes defined at this interface
+            'name'   : intf.get('name', blk.get('name')) + suffix,
             'offset' : intf['address'],
             'block'  : blk,
             'size'   : blk['computed_size'],
         }
-
-        # use interface name, or fall back to block name
-        # append any suffixes defined at this interface
-        new_region['name'] = intf.get('name', blk.get('name')) + intf.get('suffix', "")
         elaborate_name(new_region)
         intf['regions'].append(new_region)
 

@@ -158,9 +158,10 @@ Regmap file format
 
 All input files are written in yaml.  External blocks can be pulled in by using a `!include` directive which is an extension to the yaml syntax.
 
-There are two distinct types of input files which can be processed by the regio tools.
+The following are the distinct types of input files which can be processed by the regio tools.
 * Toplevel: Describes a complete FPGA PCIe register map along with all logic blocks contained in each PCIe BAR.
-* Block: Describes a single logic block which is typically included in a toplevel
+* Block: Describes a single logic block. Is typically included in a toplevel or a decoder.
+* Decoder: Describes a grouping of blocks and sub-decoders. Is included in a toplevel or parent decoder.
 
 Toplevel
 --------
@@ -274,6 +275,12 @@ interfaces:
 
 A decoder consists of the following attributes
 * name: the name of the decoder
+* visible: (optional) boolean flag to control the decoder's visibility in the register map hierarchy
+  * when "false" or missing, the decoder interfaces will replace the decoder in the register map hierarchy
+    * all interfaces under a decoder are effectively "pulled-up" or "flattened" to the decoder's level in the hierarchy, making the decoder transparent
+  * when "true", the decoder will remain in the register map hierarchy
+    * all interfaces under a decoder will remain as is in the register map hierarchy, making the decoder non-transparent
+  * primarily used by `regio-generate` when defining the register map overlay structures
 * blocks: instances of blocks referenced in other sections
 * decoders: instances of child decoders referenced in other sections
 * interfaces: address ranges that map to other blocks or child decoders
