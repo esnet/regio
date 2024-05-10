@@ -219,6 +219,76 @@ def elaborate_block(blk):
     # Elaborate the regs
     blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
 
+def elaborate_interface(intf, idx, parent):
+    if not 'address' in intf:
+        print("Decoder {}: Missing 'address' definition".format(parent['name']))
+        sys.exit(1)
+
+    if 'size' in intf:
+        # size is explicitly specified and may not be a power of 2
+        intf_max_size_bytes = intf['size']
+    elif 'width' in intf:
+        # size is explicitly specified as exactly a power of 2
+        intf_max_size_bytes = 2**intf['width']
+    else:
+        # Size is dynamically calculated based on what this intf contains
+        intf_max_size_bytes = None
+
+    intf['regions'] = []
+    intf['padding'] = []
+    if 'decoder' in intf:
+        # bubble the regions upward, adding in this interface's offset
+        for region in intf['decoder']['regions']:
+            new_region = {
+                'name'       : region['name'],
+                'name_lower' : region['name_lower'],
+                'name_upper' : region['name_upper'],
+                'offset'     : intf['address'] + region['offset'],
+                'block'      : region['block'],
+                'size'       : region['size'],
+            }
+            if 'suffix' in intf:
+                new_region['name'] += intf['suffix']
+                elaborate_name(new_region)
+            intf['regions'].append(new_region)
+
+        # bubble the padding upward, adding in this interface's offset
+        for pad in intf['decoder']['padding']:
+            intf['padding'].append({
+                'offset' : intf['address'] + pad['offset'],
+                'size'   : pad['size'],
+            })
+
+    elif 'block' in intf:
+        blk = intf['block']
+        new_region = {
+            'offset' : intf['address'],
+            'block'  : blk,
+            'size'   : blk['computed_size'],
+        }
+
+        # use interface name, or fall back to block name
+        # append any suffixes defined at this interface
+        new_region['name'] = intf.get('name', blk.get('name')) + intf.get('suffix', "")
+        elaborate_name(new_region)
+        intf['regions'].append(new_region)
+
+    # Make sure every interface has a name, autogenerate if necessary
+    # Do this after evaluating the interfaces so regions don't pick up an autogen name
+    # TODO: Figure out if this has side effects when the same decoder is elaborated more than once
+    intf['name'] = intf.get('name', "client_if_{:02d}".format(idx))
+    elaborate_name(intf)
+
+    # Compute padding to fill out the interface
+    if intf_max_size_bytes is not None:
+        intf_max_address = intf['address'] + intf_max_size_bytes
+    else:
+        intf_max_address = None
+    intf_padding, intf_size_bytes = compute_region_padding(
+        intf['regions'], intf['padding'], intf['address'], intf_max_address)
+    intf['padding'].extend(intf_padding)
+    intf['size'] = intf_size_bytes
+
 def elaborate_decoder(dec):
     # Elaborate any referenced child blocks
     if 'blocks' in dec:
@@ -236,74 +306,8 @@ def elaborate_decoder(dec):
     dec['regions'] = []
     dec['padding'] = []
     if 'interfaces' in dec:
-        for i, intf in enumerate(dec['interfaces']):
-            if not 'address' in intf:
-                print("Decoder {}: Missing 'address' definition".format(dec['name']))
-                sys.exit(1)
-
-            if 'size' in intf:
-                # size is explicitly specified and may not be a power of 2
-                intf_max_size_bytes = intf['size']
-            elif 'width' in intf:
-                # size is explicitly specified as exactly a power of 2
-                intf_max_size_bytes = 2**intf['width']
-            else:
-                # Size is dynamically calculated based on what this intf contains
-                intf_max_size_bytes = None
-
-            intf['regions'] = []
-            intf['padding'] = []
-            if 'decoder' in intf:
-                # bubble the regions upward, adding in this interface's offset
-                for region in intf['decoder']['regions']:
-                    new_region = {
-                        'name'       : region['name'],
-                        'name_lower' : region['name_lower'],
-                        'name_upper' : region['name_upper'],
-                        'offset'     : intf['address'] + region['offset'],
-                        'block'      : region['block'],
-                        'size'       : region['size'],
-                    }
-                    if 'suffix' in intf:
-                        new_region['name'] += intf['suffix']
-                        elaborate_name(new_region)
-                    intf['regions'].append(new_region)
-
-                # bubble the padding upward, adding in this interface's offset
-                for pad in intf['decoder']['padding']:
-                    intf['padding'].append({
-                        'offset' : intf['address'] + pad['offset'],
-                        'size'   : pad['size'],
-                    })
-
-            elif 'block' in intf:
-                blk = intf['block']
-                new_region = {
-                    'offset' : intf['address'],
-                    'block'  : blk,
-                    'size'   : blk['computed_size'],
-                }
-
-                # use interface name, or fall back to block name
-                # append any suffixes defined at this interface
-                new_region['name'] = intf.get('name', blk.get('name')) + intf.get('suffix', "")
-                elaborate_name(new_region)
-                intf['regions'].append(new_region)
-
-            # Make sure every interface has a name, autogenerate if necessary
-            # Do this after evaluating the interfaces so regions don't pick up an autogen name
-            # TODO: Figure out if this has side effects when the same decoder is elaborated more than once
-            intf['name'] = intf.get('name', "client_if_{:02d}".format(i))
-            elaborate_name(intf)
-
-            # Compute padding to fill out the interface
-            if intf_max_size_bytes is not None:
-                intf_max_address = intf['address'] + intf_max_size_bytes
-            else:
-                intf_max_address = None
-            intf_padding, intf_size_bytes = compute_region_padding(intf['regions'], intf['padding'], intf['address'], intf_max_address)
-            intf['padding'].extend(intf_padding)
-            intf['size'] = intf_size_bytes
+        for idx, intf in enumerate(dec['interfaces']):
+            elaborate_interface(intf, idx, dec)
 
             dec['regions'].extend(intf['regions'])
             dec['padding'].extend(intf['padding'])
@@ -312,8 +316,6 @@ def elaborate_decoder(dec):
     decoder_padding, decoder_size = compute_region_padding(dec['regions'], dec['padding'], 0, None)
     dec['padding'].extend(decoder_padding)
     dec['size'] = decoder_size
-
-    return
 
 def elaborate_bar(bar):
     elaborate_name(bar)
