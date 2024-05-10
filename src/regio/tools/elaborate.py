@@ -315,31 +315,32 @@ def elaborate_decoder(dec):
 
     return
 
-def elaborate_toplevel(top):
-    PAGE_SIZE = 4096
+def elaborate_bar(bar):
+    elaborate_name(bar)
 
+    # Elaborate the bar decoder
+    dec = bar['decoder']
+    elaborate_decoder(dec)
+
+    # Promote all decoder regions up to the bar and pad it out to fill the bar
+    bar['regions'] = dec['regions']
+    bar_padding, bar_size = compute_region_padding(dec['regions'], dec['padding'], 0, bar['size'])
+    bar['padding'] = dec['padding'] + bar_padding
+    bar['size'] = bar_size
+
+    # Fill in the size in pages
+    PAGE_SIZE = 4096
+    bar_size_pages = bar['size'] // PAGE_SIZE
+    if bar['size'] % PAGE_SIZE > 0:
+        bar_size_pages += 1
+    bar['size_pages'] = bar_size_pages
+
+def elaborate_toplevel(top):
     elaborate_name(top)
 
     # Elaborate the bars
-    for barid, bar in top['bars'].items():
-        elaborate_name(bar)
-
-        # Elaborate the bar decoder
-        dec = bar['decoder']
-        elaborate_decoder(dec)
-
-        # Promote all decoder regions up to the bar and pad it out to fill the bar
-        bar['regions'] = dec['regions']
-        bar_padding, bar_size = compute_region_padding(dec['regions'], dec['padding'], 0, bar['size'])
-        bar['padding'] = dec['padding'] + bar_padding
-        bar['size'] = bar_size
-
-        # Fill in the size in pages
-        bar_size_pages = bar['size'] // PAGE_SIZE
-        if bar['size'] % PAGE_SIZE > 0:
-            bar_size_pages += 1
-        bar['size_pages'] = bar_size_pages
-
+    for bar in top['bars'].values():
+        elaborate_bar(bar)
 
 @click.command()
 @click.option('-o', '--output-file',
@@ -356,9 +357,9 @@ def elaborate_toplevel(top):
                 type=click.File('r'))
 def click_main(include_dir, output_file, file_type, yaml_file):
     """Reads in a concise yaml regmap definition and fully
-    elaborates it to produce a self-contained, verbose regmap 
+    elaborates it to produce a self-contained, verbose regmap
     file that can be used by code generators"""
-    
+
     if include_dir is not None:
         YamlIncludeConstructor.add_to_loader_class(loader_class=Loader, base_dir=include_dir)
 
