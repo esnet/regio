@@ -92,58 +92,42 @@ def elaborate_name(obj):
         'name_upper': safename.upper(),
     })
 
-def elaborate_fields(flds_in, defaults):
-    # Set up some default defaults in addition to the ones inherited from the containing register
-    defaults.update({
-        'init': 0,
+def elaborate_field(fld, offset, defaults, parent):
+    # Set up a new field based on current context
+    fnew = defaults.copy()
+    fnew.update({
+        'offset': offset,
     })
 
-    fld_offset = 0
-    flds = []
-    synth_fld_cnt = 0
-    for fld in flds_in:
-        if 'default' in fld:
-            defaults.update(fld['default'])
-            continue
-        
-        # Set up a new field based on current context
-        fnew = {}
-        fnew.update(defaults)
-        fnew.update({
-            'offset': fld_offset,
-        })
+    if 'meta' in fld:
+        meta = fld['meta']
+        if 'pad_until' in meta:
+            if offset > meta['pad_until']:
+                # Negative padding!
+                print("Negative padding requested at offset", offset)
+                sys.exit(1)
+            elif offset == meta['pad_until']:
+                # No padding required
+                print("Padding not required at offset", offset)
+                sys.exit(1)
+            else:
+                fnew.update({
+                    'name':   "anon{:03d}".format(parent['synth_fld_cnt']),
+                    'access': 'none',
+                    'width':  (meta['pad_until'] - offset)
+                })
+                parent['synth_fld_cnt'] += 1
+    else:
+        fnew.update(fld)
 
-        if 'meta' in fld:
-            meta = fld['meta']
-            if 'pad_until' in meta:
-                if fld_offset > meta['pad_until']:
-                    # Negative padding!
-                    print("Negative padding requested at offset", fld_offset)
-                    sys.exit(1)
-                elif fld_offset == meta['pad_until']:
-                    # No padding required
-                    print("Padding not required at offset", fld_offset)
-                    sys.exit(1)
-                else:
-                    fnew.update({
-                        'name':   "anon{:03d}".format(synth_fld_cnt),
-                        'access': 'none',
-                        'width':  (meta['pad_until'] - fld_offset)
-                    })
-                    synth_fld_cnt += 1
-        else:
-            fnew.update(fld)
+    # Compute the appropriate mask
+    fnew.update({
+        'mask':  ((1 << fnew['width']) - 1 << offset)
+    })
 
-        # Compute the appropriate mask
-        fnew.update({
-            'mask':  ((1 << fnew['width']) - 1 << fld_offset)
-        })
+    elaborate_name(fnew)
 
-        elaborate_name(fnew)
-        flds.append(fnew)
-        fld_offset += fnew['width']
-
-    return flds, fld_offset
+    return fnew
 
 def elaborate_register(reg, offset, defaults, parent):
     # Set up a new register based on current context
@@ -174,12 +158,29 @@ def elaborate_register(reg, offset, defaults, parent):
     else:
         # merge in the yaml register definition
         rnew.update(reg)
+
+        # Elaborate the fields
         if 'fields' in rnew:
-            # Elaborate the fields
-            field_defaults = {
-                'access': rnew['access']
+            fld_defaults = {
+                'access': rnew['access'],
+                'init': 0,
             }
-            rnew['fields'], rnew['computed_width'] = elaborate_fields(rnew['fields'], field_defaults)
+
+            rnew['synth_fld_cnt'] = 0
+            fld_offset = 0
+            flds = []
+            for fld in rnew['fields']:
+                if 'default' in fld:
+                    fld_defaults.update(fld['default'])
+                    continue
+
+                fnew = elaborate_field(fld, fld_offset, fld_defaults, rnew)
+                flds.append(fnew)
+                fld_offset += fnew['width']
+
+            rnew['fields'] = flds
+            rnew['computed_width'] = fld_offset
+            del rnew['synth_fld_cnt']
 
     elaborate_name(rnew)
 
