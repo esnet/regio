@@ -81,8 +81,16 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
 
     return new_padding, max_offset - min_offset
 
-name_escape = str.maketrans("~!@#$%^&*()-+=;,./?",
+NAME_ESCAPE = str.maketrans("~!@#$%^&*()-+=;,./?",
                             "___________________")
+def elaborate_name(obj):
+    # Provide safe names
+    safename = obj['name'].translate(NAME_ESCAPE)
+    obj.update({
+        'name':       safename,
+        'name_lower': safename.lower(),
+        'name_upper': safename.upper(),
+    })
 
 def elaborate_fields(flds_in, defaults):
     # Set up some default defaults in addition to the ones inherited from the containing register
@@ -126,19 +134,12 @@ def elaborate_fields(flds_in, defaults):
         else:
             fnew.update(fld)
 
-        # Provide safe names
-        safename = fnew['name'].translate(name_escape)
-        fnew.update({
-            'name':       safename,
-            'name_lower': safename.lower(),
-            'name_upper': safename.upper(),
-        })
-
         # Compute the appropriate mask
         fnew.update({
             'mask':  ((1 << fnew['width']) - 1 << fld_offset)
         })
 
+        elaborate_name(fnew)
         flds.append(fnew)
         fld_offset += fnew['width']
 
@@ -205,14 +206,7 @@ def elaborate_regs(regs_in):
                 }
                 rnew['fields'], rnew['computed_width'] = elaborate_fields(rnew['fields'], field_defaults)
 
-        # Provide safe names
-        safename = rnew['name'].translate(name_escape)
-        rnew.update({
-            'name':       safename.translate(name_escape),
-            'name_lower': safename.lower(),
-            'name_upper': safename.upper(),
-        })
-
+        elaborate_name(rnew)
         regs.append(rnew)
         reg_offset += (rnew['width'] * rnew['count']) // 8
 
@@ -220,13 +214,7 @@ def elaborate_regs(regs_in):
 
 
 def elaborate_block(blk):
-    # Provide safe names
-    safename = blk['name'].translate(name_escape)
-    blk.update({
-        'name':       safename,
-        'name_lower': safename.lower(),
-        'name_upper': safename.upper(),
-    })
+    elaborate_name(blk)
 
     # Elaborate the regs
     blk['regs'], blk['computed_size'] = elaborate_regs(blk['regs'])
@@ -242,13 +230,7 @@ def elaborate_decoder(dec):
         for _, d in dec['decoders'].items():
             elaborate_decoder(d)
 
-    # Provide safe names
-    safename = dec['name'].translate(name_escape)
-    dec.update({
-        'name':       safename,
-        'name_lower': safename.lower(),
-        'name_upper': safename.upper(),
-    })
+    elaborate_name(dec)
 
     # Elaborate the region list from the interfaces defined in this decoder
     dec['regions'] = []
@@ -283,13 +265,8 @@ def elaborate_decoder(dec):
                         'size'       : region['size'],
                     }
                     if 'suffix' in intf:
-                        name = new_region['name'] + intf['suffix']
-                        safename = name.translate(name_escape)
-                        new_region.update({
-                            'name'       : safename,
-                            'name_lower' : safename.lower(),
-                            'name_upper' : safename.upper(),
-                        })
+                        new_region['name'] += intf['suffix']
+                        elaborate_name(new_region)
                     intf['regions'].append(new_region)
 
                 # bubble the padding upward, adding in this interface's offset
@@ -303,32 +280,21 @@ def elaborate_decoder(dec):
                 blk = intf['block']
                 new_region = {
                     'offset' : intf['address'],
-                    'block'  : intf['block'],
+                    'block'  : blk,
                     'size'   : blk['computed_size'],
                 }
 
                 # use interface name, or fall back to block name
-                name = intf.get('name', blk.get('name'))
                 # append any suffixes defined at this interface
-                name += intf.get('suffix', "")
-                # generate a safename
-                safename = name.translate(name_escape)
-                new_region.update({
-                    'name'       : safename,
-                    'name_lower' : safename.lower(),
-                    'name_upper' : safename.upper(),
-                })
+                new_region['name'] = intf.get('name', blk.get('name')) + intf.get('suffix', "")
+                elaborate_name(new_region)
                 intf['regions'].append(new_region)
 
-            # Make sure every interface has a name, autgenerate if necessary
+            # Make sure every interface has a name, autogenerate if necessary
             # Do this after evaluating the interfaces so regions don't pick up an autogen name
             # TODO: Figure out if this has side effects when the same decoder is elaborated more than once
-            safename = intf.get('name', "client_if_{:02d}".format(i)).translate(name_escape)
-            intf.update({
-                'name':       safename,
-                'name_lower': safename.lower(),
-                'name_upper': safename.upper(),
-            })
+            intf['name'] = intf.get('name', "client_if_{:02d}".format(i))
+            elaborate_name(intf)
 
             # Compute padding to fill out the interface
             if intf_max_size_bytes is not None:
@@ -352,25 +318,13 @@ def elaborate_decoder(dec):
 def elaborate_toplevel(top):
     PAGE_SIZE = 4096
 
-    # Provide safe names
-    safename = top['name'].translate(name_escape)
-    top.update({
-        'name':       safename,
-        'name_lower': safename.lower(),
-        'name_upper': safename.upper(),
-    })
+    elaborate_name(top)
 
     # Elaborate the bars
     for barid, bar in top['bars'].items():
-        # Provide safe names
-        safename = bar['name'].translate(name_escape)
-        bar.update({
-            'name':       safename,
-            'name_lower': safename.lower(),
-            'name_upper': safename.upper(),
-        })
+        elaborate_name(bar)
 
-        # Elaborate the top-level decoder
+        # Elaborate the bar decoder
         dec = bar['decoder']
         elaborate_decoder(dec)
 
