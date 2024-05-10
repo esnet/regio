@@ -8,6 +8,384 @@ import sys
 
 from . import parser
 
+#---------------------------------------------------------------------------------------------------
+ACCESS_MODES = set(('ro', 'rw', 'wo', 'wr_evt', 'rd_evt'))
+
+#---------------------------------------------------------------------------------------------------
+def stderr(msg):
+    sys.stderr.write(msg + '\n')
+
+def log(obj, level, msg):
+    try:
+        metadata = obj.___metadata___
+    except AttributeError:
+        ...
+    else:
+        msg += f' [{metadata}]'
+    stderr(f'{level}: {msg}')
+
+def warning(obj, msg):
+    log(obj, 'WARNING', msg)
+
+def error(obj, msg):
+    log(obj, 'ERROR', msg)
+
+def fatal(obj, msg):
+    error(obj, msg)
+    sys.exit(1)
+
+#---------------------------------------------------------------------------------------------------
+def validate_attrs(obj, required, optional, deprecated, tag):
+    if not isinstance(obj, dict):
+        fatal(obj, f'A "{tag}" object must be specified as a mapping')
+
+    # Track processed attributes to help in detecting errors in input YAML.
+    attrs = set(obj.keys())
+
+    # Require non-emptiness.
+    if not attrs:
+        fatal(obj, f'Missing attributes in "{tag}"')
+
+    # Verify that all required attributes are present.
+    for key, types in required:
+        if key not in obj:
+            fatal(obj, f'Missing required "{key}" attribute in "{tag}"')
+
+        value = obj[key]
+        if value is None:
+            warning(obj, f'Required attribute "{key}" in "{tag}" has NULL value')
+        elif not isinstance(value, types):
+            fatal(obj, f'Invalid type for required "{key}" attribute in "{tag}". '
+                  f'Expected {types}, got {type(value)}')
+        attrs.remove(key)
+
+    # Verify all optional attributes given.
+    for key, types in optional:
+        if key not in obj:
+            continue
+
+        value = obj[key]
+        if value is None:
+            warning(obj, f'Optional attribute "{key}" in "{tag}" has NULL value')
+        elif not isinstance(value, types):
+            fatal(obj, f'Invalid type for optional "{key}" attribute in "{tag}". '
+                  f'Expected {types}, got {type(value)}')
+        attrs.remove(key)
+
+    # Warn about deprecated attributes.
+    for key in deprecated:
+        if key in obj:
+            warning(obj, f'Attribute "{key}" in "{tag}" is deprecated and will be ignored')
+            attrs.remove(key)
+
+    # Check for unknown attributes.
+    if attrs:
+        unknown = ', '.join(sorted(attrs))
+        fatal(obj, f'Found unknown attributes in "{tag}": {unknown}')
+
+#---------------------------------------------------------------------------------------------------
+def validate_field_defaults(defaults):
+    tag = 'field-default'
+
+    # Validate the attributes.
+    OPTIONAL = (
+        ('access', str),
+        ('init', int),
+        ('width', int),
+    )
+    validate_attrs(defaults, (), OPTIONAL, (), tag)
+
+    # Verify that the given width is sensible.
+    width = defaults.get('width')
+    if width is not None and width < 1:
+        fatal(defaults, 'The "width" of a "{tag}" must be at least 1 bit')
+
+#---------------------------------------------------------------------------------------------------
+def validate_field(fld):
+    tag = 'field'
+    if not isinstance(fld, dict):
+        fatal(fld, 'A "{tag}" must be a mapping')
+
+    # Validate as a meta-field.
+    key = 'meta'
+    if key in fld:
+        OPTIONAL = (
+            ('pad_until', int),
+        )
+        validate_attrs(fld[key], (), OPTIONAL, (), tag + '-meta')
+        return
+
+    # Validate the attributes.
+    REQUIRED = (
+        ('name', str),
+    )
+    OPTIONAL = (
+        ('access', str),
+        ('count', int),
+        ('desc', str),
+        ('enum_hex', dict),
+        ('info', str),
+        ('init', int),
+        ('width', int),
+    )
+    validate_attrs(fld, REQUIRED, OPTIONAL, (), tag)
+
+    # Verify the access mode if provided.
+    access = fld.get('access')
+    if access is not None and access not in ACCESS_MODES:
+        choices = ', '.join(sorted(ACCESS_MODES))
+        fatal(fld, f'Unknown value "{access}" for "access" in "{tag}". Choices are: {choices}')
+
+    # Verify that the given width is sensible.
+    width = fld.get('width')
+    if width is not None and width < 1:
+        fatal(fld, 'The "width" of a "{tag}" must be at least 1 bit')
+
+    # Verify that the given count is sensible.
+    count = fld.get('count')
+    if count is not None and count < 1:
+        fatal(fld, 'The "count" of a "{tag}" must be at least 1')
+
+    # Verify the enumeration structure.
+    enums = fld.get('enum_hex')
+    if enums is not None:
+        labels = set()
+        values = set()
+        for value, label in enums.items():
+            # Validate the enumeration label.
+            if not isinstance(label, str):
+                fatal(enums, f'Enumeration label "{label}" for value "{value}" must be specified '
+                      f'as a string, not a {type(label)}')
+
+            # Check for duplicate enumeration labels.
+            if label in labels:
+                fatal(enums, f'Duplicate enumeration label "{label}"')
+            labels.add(label)
+
+            # Validate the enumeration value.
+            if not isinstance(value, int):
+                if isinstance(value, str):
+                    warning(enums, f'Enumeration value "{value}" with label "{label}" should be '
+                            'specified as an int.')
+                    try:
+                        ivalue = int(value, 16)
+                    except ValueError:
+                        fatal(enums, f'Enumeration value "{value}" with label "{label}" must be '
+                              'specified as a base-16 int')
+                else:
+                    fatal(enums, f'Enumeration value "{value}" must be specified as an int, not a '
+                          f'{type(value)}')
+
+            # Check for duplicate enumeration labels. Note that this will only catch duplications
+            # of values speficied as both int and str. Duplicate values of the same type will not
+            # be noticed due to the nature of the mapping.
+            svalue = str(value) # Converted to a string to match usage in templates/block_c.j2.
+            if svalue in values:
+                fatal(enums, f'Duplicate enumeration value "{value}"')
+            values.add(svalue)
+
+#---------------------------------------------------------------------------------------------------
+def validate_register_defaults(defaults):
+    tag = 'register-default'
+
+    # Validate the attributes.
+    OPTIONAL = (
+        ('access', str),
+        ('init', int),
+        ('width', int),
+    )
+    validate_attrs(defaults, (), OPTIONAL, (), tag)
+
+    # Verify that the given width is sensible.
+    width = defaults.get('width')
+    if width is not None and width < 1:
+        fatal(defaults, 'The "width" of a "{tag}" must be at least 1 bit')
+
+#---------------------------------------------------------------------------------------------------
+def validate_register(reg):
+    tag = 'register'
+    if not isinstance(reg, dict):
+        fatal(reg, 'A "{tag}" must be a mapping')
+
+    # Validate as a meta-register.
+    key = 'meta'
+    if key in reg:
+        OPTIONAL = (
+            ('pad_until', int),
+        )
+        validate_attrs(reg[key], (), OPTIONAL, (), tag + '-meta')
+        return
+
+    # Validate the attributes.
+    REQUIRED = (
+        ('name', str),
+    )
+    OPTIONAL = (
+        ('access', str),
+        ('count', int),
+        ('desc', str),
+        ('fields', list),
+        ('info', str),
+        ('init', int),
+        ('width', int),
+    )
+    validate_attrs(reg, REQUIRED, OPTIONAL, (), tag)
+
+    # Verify the access mode if provided.
+    access = reg.get('access')
+    if access is not None and access not in ACCESS_MODES:
+        choices = ', '.join(sorted(ACCESS_MODES))
+        fatal(reg, f'Unknown value "{access}" for "access" in "{tag}". Choices are: {choices}')
+
+    # Validate the list for specifying the registers.
+    fields = reg.get('fields', ())
+    for fld in fields:
+        if not isinstance(fld, dict):
+            error(reg, 'Register field must be specified as a mapping')
+            fatal(fld, f'Register field of incorrect type {type(fld)}: {repr(fld)}')
+
+    # Verify that the given width is sensible.
+    width = reg.get('width')
+    if width is not None and width < 1:
+        fatal(reg, f'The "width" of a "{tag}" must be at least 1 bit')
+
+    # Verify that the given count is sensible.
+    count = reg.get('count')
+    if count is not None and count < 1:
+        fatal(reg, f'The "count" of a "{tag}" must be at least 1')
+
+#---------------------------------------------------------------------------------------------------
+def validate_block(blk):
+    tag = 'block'
+    if not isinstance(blk, dict):
+        fatal(blk, 'A "{tag}" must be a mapping')
+
+    # Validate the attributes.
+    REQUIRED = (
+        ('info', str),
+        ('name', str),
+        ('regs', list),
+    )
+    OPTIONAL = (
+        ('desc', str),
+    )
+    validate_attrs(blk, REQUIRED, OPTIONAL, (), tag)
+
+    # Validate the list for specifying the registers.
+    for reg in blk['regs']:
+        if not isinstance(reg, dict):
+            error(blk, 'Register must be specified as a mapping')
+            fatal(reg, f'Register of incorrect type {type(reg)}: {repr(reg)}')
+
+#---------------------------------------------------------------------------------------------------
+def validate_interface(intf):
+    tag = 'interface'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('address', int),
+    )
+    OPTIONAL = (
+        ('block', dict),
+        ('decoder', dict),
+        ('name', str),
+        ('size', int),
+        ('suffix', str),
+        ('width', int),
+    )
+    validate_attrs(intf, REQUIRED, OPTIONAL, (), tag)
+
+    # Make sure that the interface has a target block or decoder, but not both.
+    if 'block' in intf and 'decoder' in intf:
+        fatal(intf, f'Must specify the target of an "{tag}" using either the "block" or "decoder" '
+              'attribute, not both')
+    if 'block' not in intf and 'decoder' not in intf:
+        fatal(intf, f'Missing the target of an "{tag}". Specify using either the "block" or '
+              '"decoder" attribute')
+
+    # Make sure that the interface size is specified in one way.
+    size = intf.get('size')
+    width = intf.get('width')
+    if size is not None and width is not None:
+        fatal(intf, f'Must specify the size of an "{tag}" using either the "size" or "width" '
+              'attribute, not both')
+
+    # Verify that the given size is sensible.
+    if size is not None and size < 1:
+        fatal(intf, f'The "size" of an "{tag}" must be at least 1 byte')
+
+    # Verify that the given width is sensible.
+    if width is not None and width < 1:
+        fatal(intf, f'The "width" of an "{tag}" must be at least 1 bit')
+
+#---------------------------------------------------------------------------------------------------
+def validate_decoder(dec):
+    tag = 'decoder'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('interfaces', list),
+        ('name', str),
+    )
+    OPTIONAL = (
+        ('blocks', dict),
+        ('decoders', dict),
+        ('info', str),
+        ('visible', bool),
+    )
+    validate_attrs(dec, REQUIRED, OPTIONAL, (), tag)
+
+    # Make sure that the decoder has blocks and/or decoders.
+    if 'blocks' not in dec and 'decoders' not in dec:
+        fatal(dec, f'Missing a "blocks" and/or "decoders" mapping needed by "{tag}"')
+
+    # Validate the list for specifying the interfaces.
+    for intf in dec['interfaces']:
+        if not isinstance(intf, dict):
+            error(dec, 'Decoder interfaces must be specified as a mapping')
+            fatal(intf, f'Decoder interface of incorrect type {type(intf)}: {repr(intf)}')
+
+#---------------------------------------------------------------------------------------------------
+def validate_bar(bar):
+    tag = 'bar'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('decoder', dict),
+        ('desc', str),
+        ('name', str),
+        ('size', int),
+    )
+    DEPRECATED = (
+        'offset',
+    )
+    validate_attrs(bar, REQUIRED, (), DEPRECATED, tag)
+
+#---------------------------------------------------------------------------------------------------
+def validate_toplevel(top):
+    tag = 'toplevel'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('bars', dict),
+        ('info', str),
+        ('name', str),
+        ('pci_device', int),
+        ('pci_vendor', int),
+    )
+    validate_attrs(top, REQUIRED, (), (), tag)
+
+    # Validate the structure for specifying the BARs.
+    bars = top['bars']
+    for bid, bar in bars.items():
+        if not isinstance(bid, int):
+            fatal(bars, f'BAR ID "{bid}" must be specified as an int, not a {type(bid)}')
+
+        if not isinstance(bar, dict):
+            error(bars, f'BAR {bid} must be specified as a mapping')
+            fatal(bar, f'BAR {bid} of incorrect type {type(bar)}: {repr(bar)}')
+
+#---------------------------------------------------------------------------------------------------
 def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
     merged_sorted = sorted(regions + padding, key=lambda r: r['offset'])
     if min_offset is None:
@@ -37,7 +415,7 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
             start = region['offset']
             end = start + size
             name = region.get('block', {}).get('name', '+++')
-            print(f'\t0x{start:08x}-0x{end:08x} {name} ({size} (0x{size:08x}) bytes)')
+            stderr(f'\t0x{start:08x}-0x{end:08x} {name} ({size} (0x{size:08x}) bytes)')
 
     # Compute any required padding before the first region or between regions
     offset = min_offset
@@ -53,9 +431,9 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
             # Overlapping regions
             start = region['offset']
             size = offset - start
-            print(f'Overlapping regions at offset 0x{offset:08x}')
-            print('Previous region overlaps this region (start offset '
-                  f'0x{start:08x}) by {size} (0x{size:08x}) bytes')
+            stderr(f'Overlapping regions at offset 0x{offset:08x}')
+            stderr('Previous region overlaps this region (start offset '
+                   f'0x{start:08x}) by {size} (0x{size:08x}) bytes')
             dump_regions()
             sys.exit(1)
         offset += region['size']
@@ -71,13 +449,14 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
     elif offset > max_offset:
         # Contents exceed the size of the container
         size = offset - max_offset
-        print(f'Regions exceed container by {size} (0x{size:08x}) bytes')
-        print(f'Min: 0x{min_offset:08x}, Current: 0x{offset:08x}, Max: 0x{max_offset:08x}')
+        stderr(f'Regions exceed container by {size} (0x{size:08x}) bytes')
+        stderr(f'Min: 0x{min_offset:08x}, Current: 0x{offset:08x}, Max: 0x{max_offset:08x}')
         dump_regions()
         sys.exit(1)
 
     return new_padding, max_offset - min_offset
 
+#---------------------------------------------------------------------------------------------------
 NAME_ESCAPE = str.maketrans('~!@#$%^&*()-+=;,./?',
                             '___________________')
 def elaborate_name(obj):
@@ -89,7 +468,10 @@ def elaborate_name(obj):
         'name_upper': safename.upper(),
     })
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_field(fld, offset, defaults, parent):
+    validate_field(fld)
+
     # Set up a new field based on current context
     fnew = defaults.copy()
     fnew.update({
@@ -101,12 +483,10 @@ def elaborate_field(fld, offset, defaults, parent):
         if 'pad_until' in meta:
             if offset > meta['pad_until']:
                 # Negative padding!
-                print(f'Negative padding requested at offset {offset}')
-                sys.exit(1)
+                fatal(fld, f'Negative padding requested at offset {offset}')
             elif offset == meta['pad_until']:
                 # No padding required
-                print(f'Padding not required at offset {offset}')
-                sys.exit(1)
+                fatal(fld, f'Padding not required at offset {offset}')
             else:
                 fnew.update({
                     'name':   f'anon{parent["synth_fld_cnt"]:03d}',
@@ -126,7 +506,10 @@ def elaborate_field(fld, offset, defaults, parent):
 
     return fnew
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_register(reg, offset, defaults, parent):
+    validate_register(reg)
+
     # Set up a new register based on current context
     rnew = defaults.copy()
     rnew.update({
@@ -138,12 +521,10 @@ def elaborate_register(reg, offset, defaults, parent):
         if 'pad_until' in meta:
             if offset > meta['pad_until']:
                 # Negative padding!
-                print(f'Negative padding requested at offset 0x{offset:08x}')
-                sys.exit(1)
+                fatal(reg, f'Negative padding requested at offset 0x{offset:08x}')
             elif offset == meta['pad_until']:
                 # No padding required
-                print(f'Padding not required at offset 0x{offset:08x}')
-                sys.exit(1)
+                fatal(reg, f'Padding not required at offset 0x{offset:08x}')
             else:
                 rnew.update({
                     'name':   f'anon{parent["synth_reg_cnt"]:03d}',
@@ -168,7 +549,9 @@ def elaborate_register(reg, offset, defaults, parent):
             flds = []
             for fld in rnew['fields']:
                 if 'default' in fld:
-                    fld_defaults.update(fld['default'])
+                    defaults = fld['default']
+                    validate_field_defaults(defaults)
+                    fld_defaults.update(defaults)
                     continue
 
                 fnew = elaborate_field(fld, fld_offset, fld_defaults, rnew)
@@ -183,7 +566,9 @@ def elaborate_register(reg, offset, defaults, parent):
 
     return rnew
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_block(blk):
+    validate_block(blk)
     elaborate_name(blk)
 
     # Set up some default defaults
@@ -210,7 +595,9 @@ def elaborate_block(blk):
     regs = []
     for reg in regs_in:
         if 'default' in reg:
-            reg_defaults.update(reg['default'])
+            defaults = reg['default']
+            validate_register_defaults(defaults)
+            reg_defaults.update(defaults)
             continue
 
         rnew = elaborate_register(reg, reg_offset, reg_defaults, blk)
@@ -221,10 +608,9 @@ def elaborate_block(blk):
     blk['computed_size'] = reg_offset
     del blk['synth_reg_cnt']
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_interface(intf, idx, parent):
-    if not 'address' in intf:
-        print(f'Decoder {parent["name"]}: Missing "address" definition')
-        sys.exit(1)
+    validate_interface(intf)
 
     if 'size' in intf:
         # size is explicitly specified and may not be a power of 2
@@ -295,7 +681,10 @@ def elaborate_interface(intf, idx, parent):
     intf['padding'].extend(intf_padding)
     intf['size'] = intf_size_bytes
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_decoder(dec):
+    validate_decoder(dec)
+
     # Elaborate any referenced child blocks
     if 'blocks' in dec:
         for _, blk in dec['blocks'].items():
@@ -323,7 +712,9 @@ def elaborate_decoder(dec):
     dec['padding'].extend(decoder_padding)
     dec['size'] = decoder_size
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_bar(bar):
+    validate_bar(bar)
     elaborate_name(bar)
 
     # Elaborate the bar decoder
@@ -343,13 +734,16 @@ def elaborate_bar(bar):
         bar_size_pages += 1
     bar['size_pages'] = bar_size_pages
 
+#---------------------------------------------------------------------------------------------------
 def elaborate_toplevel(top):
+    validate_toplevel(top)
     elaborate_name(top)
 
     # Elaborate the bars
     for bar in top['bars'].values():
         elaborate_bar(bar)
 
+#---------------------------------------------------------------------------------------------------
 @click.command()
 @click.option('-o', '--output-file',
               help='Output file for elaborated yaml file',
@@ -382,6 +776,7 @@ def click_main(include_dir, output_file, file_type, yaml_file):
 
     parser.dump(regmap, output_file)
 
+#---------------------------------------------------------------------------------------------------
 def main(inc_dir=None):
     inc_dir = str(Path.cwd()) if inc_dir is None else inc_dir
     click.option(
