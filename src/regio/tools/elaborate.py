@@ -36,6 +36,15 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
 
     new_padding = []
 
+    # Error path helper.
+    def dump_regions():
+        for region in merged_sorted:
+            size = region['size']
+            start = region['offset']
+            end = start + size
+            name = region.get('block', {}).get('name', '+++')
+            print(f'\t0x{start:08x}-0x{end:08x} {name} ({size} (0x{size:08x}) bytes)')
+
     # Compute any required padding before the first region or between regions
     offset = min_offset
     for region in merged_sorted:
@@ -48,15 +57,12 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
             offset = region['offset']
         elif region['offset'] < offset:
             # Overlapping regions
-            print("Overlapping regions at offset", offset)
-            print("  Previous region overlaps this region (start offset {:08x}) by {:08x} bytes".format(
-                region['offset'],
-                offset - region['offset'],))
-            for r in merged_sorted:
-                print("\t{:08x}-{:08x} {}".format(
-                    r['offset'],
-                    r['offset']+r['size'],
-                    r.get('block',{}).get('name',"+++")))
+            start = region['offset']
+            size = offset - start
+            print(f'Overlapping regions at offset 0x{offset:08x}')
+            print('Previous region overlaps this region (start offset '
+                  f'0x{start:08x}) by {size} (0x{size:08x}) bytes')
+            dump_regions()
             sys.exit(1)
         offset += region['size']
 
@@ -70,19 +76,16 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
         offset = max_offset
     elif offset > max_offset:
         # Contents exceed the size of the container
-        print("Regions exceed container by {:08x} bytes".format(offset - max_offset))
-        print("Min: {:08x}  Current: {:08x}  Max: {:08x}".format(min_offset, offset, max_offset))
-        for r in merged_sorted:
-            print("\t{:08x}-{:08x} {}".format(
-                r['offset'],
-                r['offset']+r['size'],
-                r.get('block',{}).get('name',"+++")))
+        size = offset - max_offset
+        print(f'Regions exceed container by {size} (0x{size:08x}) bytes')
+        print(f'Min: 0x{min_offset:08x}, Current: 0x{offset:08x}, Max: 0x{max_offset:08x}')
+        dump_regions()
         sys.exit(1)
 
     return new_padding, max_offset - min_offset
 
-NAME_ESCAPE = str.maketrans("~!@#$%^&*()-+=;,./?",
-                            "___________________")
+NAME_ESCAPE = str.maketrans('~!@#$%^&*()-+=;,./?',
+                            '___________________')
 def elaborate_name(obj):
     # Provide safe names
     safename = obj['name'].translate(NAME_ESCAPE)
@@ -104,15 +107,15 @@ def elaborate_field(fld, offset, defaults, parent):
         if 'pad_until' in meta:
             if offset > meta['pad_until']:
                 # Negative padding!
-                print("Negative padding requested at offset", offset)
+                print(f'Negative padding requested at offset {offset}')
                 sys.exit(1)
             elif offset == meta['pad_until']:
                 # No padding required
-                print("Padding not required at offset", offset)
+                print(f'Padding not required at offset {offset}')
                 sys.exit(1)
             else:
                 fnew.update({
-                    'name':   "anon{:03d}".format(parent['synth_fld_cnt']),
+                    'name':   f'anon{parent["synth_fld_cnt"]:03d}',
                     'access': 'none',
                     'width':  (meta['pad_until'] - offset)
                 })
@@ -141,15 +144,15 @@ def elaborate_register(reg, offset, defaults, parent):
         if 'pad_until' in meta:
             if offset > meta['pad_until']:
                 # Negative padding!
-                print("Negative padding requested at offset", offset)
+                print(f'Negative padding requested at offset 0x{offset:08x}')
                 sys.exit(1)
             elif offset == meta['pad_until']:
                 # No padding required
-                print("Padding not required at offset", offset)
+                print(f'Padding not required at offset 0x{offset:08x}')
                 sys.exit(1)
             else:
                 rnew.update({
-                    'name':   "anon{:03d}".format(parent['synth_reg_cnt']),
+                    'name':   f'anon{parent["synth_reg_cnt"]:03d}',
                     'access': 'none',
                     'width':  8,
                     'count':  (meta['pad_until'] - offset)
@@ -226,7 +229,7 @@ def elaborate_block(blk):
 
 def elaborate_interface(intf, idx, parent):
     if not 'address' in intf:
-        print("Decoder {}: Missing 'address' definition".format(parent['name']))
+        print(f'Decoder {parent["name"]}: Missing "address" definition')
         sys.exit(1)
 
     if 'size' in intf:
@@ -285,7 +288,7 @@ def elaborate_interface(intf, idx, parent):
     # Make sure every interface has a name, autogenerate if necessary
     # Do this after evaluating the interfaces so regions don't pick up an autogen name
     # TODO: Figure out if this has side effects when the same decoder is elaborated more than once
-    intf['name'] = intf.get('name', "client_if_{:02d}".format(idx))
+    intf['name'] = intf.get('name', f'client_if_{idx:02d}')
     elaborate_name(intf)
 
     # Compute padding to fill out the interface
@@ -355,33 +358,34 @@ def elaborate_toplevel(top):
 
 @click.command()
 @click.option('-o', '--output-file',
-              help="Output file for elaborated yaml file",
-              default="-",
+              help='Output file for elaborated yaml file',
+              default='-',
               show_default=True,
               type=click.File('w'))
 @click.option('-f', '--file-type',
-              help="Type of input yaml file",
+              help='Type of input yaml file',
               type=click.Choice(['top', 'block', 'decoder']),
               default='top',
               show_default=True)
 @click.argument('yaml-file',
                 type=click.File('r'))
 def click_main(include_dir, output_file, file_type, yaml_file):
-    """Reads in a concise yaml regmap definition and fully
-    elaborates it to produce a self-contained, verbose regmap
-    file that can be used by code generators"""
+    '''
+    Reads in a concise yaml regmap definition and fully elaborates it to produce a self-contained,
+    verbose regmap file that can be used by code generators.
+    '''
 
     if include_dir is not None:
         YamlIncludeConstructor.add_to_loader_class(loader_class=Loader, base_dir=include_dir)
 
     regmap = load(yaml_file, Loader=Loader)
 
-    if file_type == "top":
+    if file_type == 'top':
         toplevel = regmap['toplevel']
         elaborate_toplevel(toplevel)
-    elif file_type == "block":
+    elif file_type == 'block':
         elaborate_block(regmap)
-    elif file_type == "decoder":
+    elif file_type == 'decoder':
         elaborate_decoder(regmap)
     else:
         pass
@@ -392,11 +396,11 @@ def main(inc_dir=None):
     inc_dir = str(Path.cwd()) if inc_dir is None else inc_dir
     click.option(
         '-i', '--include-dir',
-        help="Include directory for block definitions",
+        help='Include directory for block definitions',
         default=Path(inc_dir).absolute().joinpath('blocks'),
         show_default=True,
         type=click.Path(exists=True, file_okay=False, resolve_path=True))(click_main)
     click_main()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
