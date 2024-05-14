@@ -5,11 +5,7 @@ __all__ = (
 import click
 from jinja2 import Template, Environment, FileSystemLoader
 
-from yaml import load, dump
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
+from . import parser
 
 def blocks_from_regions(regions):
     blks = {}
@@ -25,7 +21,7 @@ def blocks_from_regions(regions):
 @click.argument('yaml-file',
                 type=click.File('r'))
 def click_main(yaml_file):
-    regmap = load(yaml_file, Loader=Loader)
+    regmap = parser.load(yaml_file)
 
     blks = {}
     top = regmap['toplevel']

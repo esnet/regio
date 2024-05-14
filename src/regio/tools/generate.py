@@ -8,11 +8,7 @@ import sys
 
 from jinja2 import Template, Environment, FileSystemLoader
 
-from yaml import load, dump
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
+from . import parser
 
 def targets_from_list(objects, target_key, recurse_key, recurse):
     targets = {}
@@ -67,7 +63,7 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
     env = Environment(loader=FileSystemLoader(str(template_dir)))
     env.add_extension('jinja2.ext.loopcontrols')
 
-    regmap = load(yaml_file, Loader=Loader)
+    regmap = parser.load(yaml_file)
 
     top = None
     blks = {}

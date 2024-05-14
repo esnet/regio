@@ -10,11 +10,7 @@ import struct
 import os
 import re
 
-from yaml import load, dump
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
+from . import parser
 
 struct_width_map = {
      8 : "@B",
@@ -69,7 +65,7 @@ SYSFS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
 @click.argument('register')
 def click_main(select, bar, regmap, register):
 
-    regmap = load(regmap, Loader=Loader)
+    regmap = parser.load(regmap)
 
     if not "toplevel" in regmap:
         print("ERROR: No toplevel defined in regmap.  Are you sure that's a regmap file?")

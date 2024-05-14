@@ -6,13 +6,7 @@ import click
 from pathlib import Path
 import sys
 
-from yaml import load, dump
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
-
-from yamlinclude import YamlIncludeConstructor
+from . import parser
 
 def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
     merged_sorted = sorted(regions + padding, key=lambda r: r['offset'])
@@ -374,11 +368,7 @@ def click_main(include_dir, output_file, file_type, yaml_file):
     Reads in a concise yaml regmap definition and fully elaborates it to produce a self-contained,
     verbose regmap file that can be used by code generators.
     '''
-
-    if include_dir is not None:
-        YamlIncludeConstructor.add_to_loader_class(loader_class=Loader, base_dir=include_dir)
-
-    regmap = load(yaml_file, Loader=Loader)
+    regmap = parser.load(yaml_file, include_dir)
 
     if file_type == 'top':
         toplevel = regmap['toplevel']
@@ -390,7 +380,7 @@ def click_main(include_dir, output_file, file_type, yaml_file):
     else:
         pass
 
-    dump(regmap, output_file, Dumper=Dumper)
+    parser.dump(regmap, output_file)
 
 def main(inc_dir=None):
     inc_dir = str(Path.cwd()) if inc_dir is None else inc_dir
