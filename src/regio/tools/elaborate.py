@@ -694,18 +694,92 @@ def elaborate_interface(intf, idx, parent):
     intf['size'] = intf_size_bytes
 
 #---------------------------------------------------------------------------------------------------
-def elaborate_decoder(dec):
+def cmp_value(value_a, value_b):
+    if isinstance(value_a, list):
+        if not isinstance(value_b, list):
+            return False
+        if not cmp_list(value_a, value_b):
+            return False
+    elif isinstance(value_a, dict):
+        if not isinstance(value_b, dict):
+            return False
+        if not cmp_dict(value_a, value_b):
+            return False
+    elif isinstance(value_a, (int, float, str, type(None))):
+        if value_a != value_b:
+            return False
+    else:
+        fatal(value_a, f'Unhandled comparison for type {type(value_a)}')
+    return True
+
+def cmp_list(list_a, list_b):
+    if len(list_a) != len(list_b):
+        return False
+
+    for value_a, value_b in zip(list_a, list_b):
+        if not cmp_value(value_a, value_b):
+            return False
+    return True
+
+def cmp_dict(dict_a, dict_b):
+    if not cmp_list(dict_a.keys(), dict_b.keys()):
+        return False
+
+    for key, value_a in dict_a.items():
+        if not cmp_value(value_a, dict_b[key]):
+            return False
+    return True
+
+def new_object_cache():
+    return {
+        'by_name': {},
+        'by_id': set(),
+    }
+
+def is_cached_object(obj, cache):
+    return id(obj) in cache['by_id']
+
+def add_cached_object(obj, cache, parent, label):
+    name = obj['name']
+    instances = cache['by_name'].get(name)
+    if instances is None:
+        cache['by_name'][name] = [obj]
+        cache['by_id'].add(id(obj))
+        return
+
+    if any(obj is inst for inst in instances):
+        return
+
+    inst = instances[0]
+    if not cmp_dict(inst, obj):
+        error(obj, f'Duplicate {label} "{name}"')
+        error(inst, f'Existing {label} "{name}"')
+        fatal(parent, f'Attempting to add duplicate {label} "{name}"')
+
+    warning(obj, f'Duplicate {label} "{name}" with same content')
+    warning(inst, f'Existing {label} "{name}" with same content')
+    warning(parent, f'Adding duplicate {label} "{name}" with same content')
+
+    cache['by_name'][name].append(obj)
+    cache['by_id'].add(id(obj))
+
+#---------------------------------------------------------------------------------------------------
+def elaborate_decoder(dec, blocks, decoders):
     validate_decoder(dec)
 
     # Elaborate any referenced child blocks
     if 'blocks' in dec:
-        for _, blk in dec['blocks'].items():
-            elaborate_block(blk)
+        for blk in dec['blocks'].values():
+            if not is_cached_object(blk, blocks):
+                elaborate_block(blk)
+                add_cached_object(blk, blocks, dec, 'block')
 
     # Elaborate any referenced child decoders
     if 'decoders' in dec:
-        for _, d in dec['decoders'].items():
-            elaborate_decoder(d)
+        for d in dec['decoders'].values():
+            if not is_cached_object(d, decoders):
+                elaborate_decoder(d, blocks, decoders)
+                add_cached_object(d, decoders, dec, 'decoder')
 
     elaborate_name(dec)
 
@@ -727,13 +801,13 @@ def elaborate_decoder(dec):
     dec['size'] = decoder_size
 
 #---------------------------------------------------------------------------------------------------
-def elaborate_bar(bar):
+def elaborate_bar(bar, blocks, decoders):
     validate_bar(bar)
     elaborate_name(bar)
 
     # Elaborate the bar decoder
     dec = bar['decoder']
-    elaborate_decoder(dec)
+    elaborate_decoder(dec, blocks, decoders)
 
     # Promote all decoder regions up to the bar and pad it out to fill the bar
     bar['regions'] = dec['regions']
@@ -749,13 +823,13 @@ def elaborate_bar(bar):
     bar['size_pages'] = bar_size_pages
 
 #---------------------------------------------------------------------------------------------------
-def elaborate_toplevel(top):
+def elaborate_toplevel(top, blocks, decoders):
     validate_toplevel(top)
     elaborate_name(top)
 
     # Elaborate the bars
     for bar in top['bars'].values():
-        elaborate_bar(bar)
+        elaborate_bar(bar, blocks, decoders)
 
 #---------------------------------------------------------------------------------------------------
 @click.command()
@@ -778,13 +852,15 @@ def click_main(include_dir, output_file, file_type, yaml_file):
     '''
     regmap = parser.load(yaml_file, include_dir)
 
+    blocks = new_object_cache()
+    decoders = new_object_cache()
     if file_type == 'top':
         toplevel = regmap['toplevel']
-        elaborate_toplevel(toplevel)
+        elaborate_toplevel(toplevel, blocks, decoders)
     elif file_type == 'block':
         elaborate_block(regmap)
     elif file_type == 'decoder':
-        elaborate_decoder(regmap)
+        elaborate_decoder(regmap, blocks, decoders)
     else:
         pass
 
