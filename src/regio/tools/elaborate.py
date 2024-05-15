@@ -622,6 +622,15 @@ def elaborate_interface(intf, idx, parent):
         # Size is dynamically calculated based on what this intf contains
         intf_max_size_bytes = None
 
+    namespace = parent['namespace']
+    def check_namespace(region):
+        name = region['name']
+        if name in namespace:
+            error(intf, f'Duplicate region name "{name}"')
+            error(namespace[name], f'Existing region with name "{name}"')
+            fatal(parent, f'Attempting to duplicate region name "{name}"')
+        namespace[name] = intf
+
     intf['regions'] = []
     intf['padding'] = []
     suffix = intf.get('suffix', '')
@@ -637,6 +646,7 @@ def elaborate_interface(intf, idx, parent):
                 'size'    : dec['size'],
             }
             elaborate_name(new_region)
+            check_namespace(new_region)
             intf['regions'].append(new_region)
         else:
             # bubble the regions upward, adding in this interface's offset
@@ -645,6 +655,7 @@ def elaborate_interface(intf, idx, parent):
                 new_region['offset'] += intf['address']
                 new_region['name'] += suffix
                 elaborate_name(new_region)
+                check_namespace(new_region)
                 intf['regions'].append(new_region)
 
             # bubble the padding upward, adding in this interface's offset
@@ -663,6 +674,7 @@ def elaborate_interface(intf, idx, parent):
             'size'   : blk['computed_size'],
         }
         elaborate_name(new_region)
+        check_namespace(new_region)
         intf['regions'].append(new_region)
 
     # Make sure every interface has a name, autogenerate if necessary
@@ -700,12 +712,14 @@ def elaborate_decoder(dec):
     # Elaborate the region list from the interfaces defined in this decoder
     dec['regions'] = []
     dec['padding'] = []
+    dec['namespace'] = {}
     if 'interfaces' in dec:
         for idx, intf in enumerate(dec['interfaces']):
             elaborate_interface(intf, idx, dec)
 
             dec['regions'].extend(intf['regions'])
             dec['padding'].extend(intf['padding'])
+    del dec['namespace']
 
     # Compute padding required before and between interfaces
     decoder_padding, decoder_size = compute_region_padding(dec['regions'], dec['padding'], 0, None)
