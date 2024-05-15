@@ -4,9 +4,9 @@ __all__ = (
     'load',
 )
 
+import pathlib
 import sys
 import yaml
-import yamlinclude
 
 #---------------------------------------------------------------------------------------------------
 class MetaData:
@@ -26,6 +26,10 @@ class CustomList(list): ...
 
 #---------------------------------------------------------------------------------------------------
 class Loader(yaml.SafeLoader):
+    def __init__(self, *pargs, include_dir=None, **kargs):
+        super().__init__(*pargs, **kargs)
+        self._include_dir = include_dir
+
     def construct_custom_dict(self, node):
         # Create an empty mapping for the node. This is needed to support anchors.
         data = CustomDict()
@@ -44,8 +48,30 @@ class Loader(yaml.SafeLoader):
         # Use the default method for filling in the list items.
         data.extend(self.construct_sequence(node))
 
+    def construct_custom_include(self, node):
+        # Use the default method for parsing the included file's path.
+        path = pathlib.Path(str(self.construct_scalar(node)))
+        if self._include_dir is not None:
+            path = self._include_dir / path
+
+        # Create an empty mapping for the node. This is needed to support anchors.
+        data = CustomDict()
+        data.___metadata___ = MetaData(node)
+        yield data
+
+        # Recursively load the included file.
+        with path.open('r') as stream:
+            inc_data = load(stream, self._include_dir)
+
+        if not isinstance(inc_data, dict):
+            raise yaml.MarkedYAMLError(None, None,
+                f'Root of included file "{path}" must be specified as a mapping, '
+                f'not a {type(inc_data)}', node.start_mark)
+        data.update(inc_data)
+
 Loader.add_constructor('tag:yaml.org,2002:map', Loader.construct_custom_dict)
 Loader.add_constructor('tag:yaml.org,2002:seq', Loader.construct_custom_list)
+Loader.add_constructor('!include', Loader.construct_custom_include)
 
 #---------------------------------------------------------------------------------------------------
 class Dumper(yaml.Dumper):
@@ -60,10 +86,11 @@ Dumper.add_representer(CustomList, Dumper.represent_custom_list)
 
 #---------------------------------------------------------------------------------------------------
 def load(stream, include_dir=None):
-    if include_dir is not None:
-        yamlinclude.YamlIncludeConstructor.add_to_loader_class(
-            loader_class=Loader, base_dir=include_dir)
-    return yaml.load(stream, Loader=Loader)
+    loader = Loader(stream, include_dir=include_dir)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 #---------------------------------------------------------------------------------------------------
 def dump(data, stream):
