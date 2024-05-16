@@ -545,6 +545,7 @@ def elaborate_register(reg, offset, defaults, parent):
             }
 
             rnew['synth_fld_cnt'] = 0
+            namespace = {}
             fld_offset = 0
             flds = []
             for fld in rnew['fields']:
@@ -557,6 +558,13 @@ def elaborate_register(reg, offset, defaults, parent):
                 fnew = elaborate_field(fld, fld_offset, fld_defaults, rnew)
                 flds.append(fnew)
                 fld_offset += fnew['width']
+
+                name = fnew['name']
+                if name in namespace:
+                    error(fld, f'Duplicate field name "{name}"')
+                    error(namespace[name], f'Existing field with name "{name}"')
+                    fatal(reg, f'Attempting to duplicate field name "{name}"')
+                namespace[name] = fld
 
             rnew['fields'] = flds
             rnew['computed_width'] = fld_offset
