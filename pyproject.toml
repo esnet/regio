@@ -23,7 +23,6 @@ shells = [
 ]
 
 [tool.poetry.scripts]
-regio = "regio.tools.io:main"
 regio-elaborate = "regio.tools.elaborate:main"
 regio-flatten = "regio.tools.flatten:main"
 regio-generate = "regio.tools.generate:main"

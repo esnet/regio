@@ -30,73 +30,249 @@ the source code repository.
 The developers of the ESnet regio library can be reached by email at smartnic@es.net.
 
 
+Setting up the Environment
+==========================
+The [Python poetry](https://python-poetry.org/) tool is used for development and packaging. It's inputs are specified via the `pyproject.toml` file.
+* For development, poetry creates a Python virtual environment to manage dependencies, keeping them separate from the host's global Python installation.
+* For distribution, poetry creates a standard Python wheel package which can be installed via pip. Aside from the core `regio` library, the following supporting scripts will also be installed:
+  * `regio-elaborate`: Converts a YAML regmap specification into a single intermediate representation (IR) YAML file containing all details necessary for generating sources.
+  * `regio-flatten`: Merges a subset of YAML regmap specification files into a single YAML file.
+  * `regio-generate`: Translates an elaborated regmap YAML IR into source files for various languages.
+  * `regio-info`: Displays the names of all blocks included in an elaborated regmap YAML IR.
+
+
 Install dependencies
-====================
+--------------------
 ```
-sudo apt install python3-yaml python3-jinja2 python3-click
 pip3 install -r requirements.txt
+```
+
+Setup for development and testing
+---------------------------------
+```
+poetry install --all-extras # Create a virtual environment and install the dependencies into it.
+poetry shell                # Run within the virtual environment for testing.
+```
+
+Testing within the virtual environment
+--------------------------------------
+```
+python3
+>>> import regio
+```
+
+Build the distribution package
+------------------------------
+```
+poetry build # The wheel package file is placed into the ./dist directory.
+```
+
+Install the distribution package
+--------------------------------
+```
+pip3 install --find-links ./dist regio[shells]
+```
+
+Regmap Python Library
+=====================
+A Python library for an elaborated regmap can be produced with the `regio-generate` tool. The Python library is named `regmap_<top-name>`, where `top-name` is taken from the `name` attribute of the regmap's `toplevel` object.
+
+Generate the Python library from an elaborated regmap
+-----------------------------------------------------
+```
+mkdir build
+regio-generate --output-dir=build --file-type=top --generator=py --recursive esnet-smartnic-top-ir.yaml
+```
+
+Install the Python library into the virtual environment
+-------------------------------------------------------
+```
+pushd build/python
+poetry install
+popd
+```
+
+Testing the Python library within the virtual environment
+---------------------------------------------------------
+```
+python3
+>>> import regmap_esnet_smartnic
+```
+
+Build the Python library distribution package
+---------------------------------------------
+```
+pushd build/python
+poetry build
+popd
+```
+
+Install the Python library distribution package
+-----------------------------------------------
+```
+pip3 install --find-links ./build/python/dist regmap_esnet_smartnic
 ```
 
 Tool regio
 ==========
-This tool is used to dump out raw register values and their fields on a running system.
+This tool is used to access register values and their fields on a running system. The tool is generated as part of the regmap Python library and is exported as a script named `regio-<top-dashed-name>`, where `top-dashed-name` is taken from the `name` attribute of the regmap's `toplevel` object with all underscores replaced by dashes.
 
-**Note**: You must have a matching elaborated regmap for the running FPGA for this tool to work properly.  See `regio-elaborate` tool below for details of how you can generate this file.
+Enable regio tool bash completions
+----------------------------------
+The regio tool supports bash completions for decoder, block, register and field names. It can be enable is the current shell as follows:
+```
+eval "$(regio-esnet-smartnic -t zero -p none completions bash)"
+```
 
 Dump out all registers in a specific block
 ------------------------------------------
 ```
-$ sudo ./regio syscfg
-[syscfg]
-           0: 20022300  build_status
-           4: --------  system_reset
-           8: 00000001  system_status
-              00000001  [ 0: 0]         1  system_reset_done
-           c: --------  shell_reset
-          10: ffffffff  shell_status
-              00000004  [ 2: 2]         1  cmac1_reset_done
-              00000002  [ 1: 1]         1  cmac0_reset_done
-              00000001  [ 0: 0]         1  qdma_reset_done
-          14: --------  user_reset
-          18: ffffffff  user_status
+regio-esnet-smartnic dump dev0.bar2.syscfg # Alternatively: regio-esnet-smartnic eval 'print(dev0.bar2.syscfg())'
+===================================================================================
+|    Size |      Offset | Range | Value      | Path                               |
+| (Bytes) |     (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2) |
+-----------------------------------------------------------------------------------
+|      44 | 0x00 - 0x28 |       |            | syscfg                             |
+|       4 |        0x00 |       | 0x05170816 | .build_status                      |
+|       4 |        0x04 |       | 0x-------- | .system_reset                      |
+|         |             |  [0]  | 0x-        | .system_reset.system_reset         |
+|       4 |        0x08 |       | 0x00000001 | .system_status                     |
+|         |             |  [0]  | 0x1        | .system_status.system_reset_done   |
+|       4 |        0x0c |       | 0x-------- | .shell_reset                       |
+|         |             |  [2]  | 0x-        | .shell_reset.cmac1_reset           |
+|         |             |  [1]  | 0x-        | .shell_reset.cmac0_reset           |
+|         |             |  [0]  | 0x-        | .shell_reset.qdma_reset            |
+|       4 |        0x10 |       | 0xffffffff | .shell_status                      |
+|         |             |  [2]  | 0x1        | .shell_status.cmac1_reset_done     |
+|         |             |  [1]  | 0x1        | .shell_status.cmac0_reset_done     |
+|         |             |  [0]  | 0x1        | .shell_status.qdma_reset_done      |
+|       4 |        0x14 |       | 0x-------- | .user_reset                        |
+|       4 |        0x18 |       | 0xffffffff | .user_status                       |
+|       4 |        0x1c |       | 0x0000c9f2 | .usr_access                        |
+|      12 | 0x20 - 0x28 |       |            | .dna[:3]                           |
+|       4 | 0x20 - 0x20 |       |            | .dna[0]                            |
+|       4 |        0x20 |       | 0x04202205 | .dna[0]._r                         |
+|       4 | 0x24 - 0x24 |       |            | .dna[1]                            |
+|       4 |        0x24 |       | 0x013ae323 | .dna[1]._r                         |
+|       4 | 0x28 - 0x28 |       |            | .dna[2]                            |
+|       4 |        0x28 |       | 0x40020000 | .dna[2]._r                         |
+-----------------------------------------------------------------------------------
 ```
 
 Dump out one specific register within a block
 ---------------------------------------------
 ```
-$ sudo ./regio syscfg.shell_status
-          10: ffffffff  syscfg.shell_status
-              00000004  [ 2: 2]         1  cmac1_reset_done
-              00000002  [ 1: 1]         1  cmac0_reset_done
-              00000001  [ 0: 0]         1  qdma_reset_done
+regio-esnet-smartnic dump dev0.bar2.syscfg.shell_status # Alternatively: regio-esnet-smartnic eval 'print(dev0.bar2.syscfg.shell_status())'
+===============================================================================
+|    Size |  Offset | Range | Value      | Path                               |
+| (Bytes) | (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2) |
+-------------------------------------------------------------------------------
+|       4 |    0x10 |       | 0xffffffff | shell_status                       |
+|         |         |  [2]  | 0x1        | .cmac1_reset_done                  |
+|         |         |  [1]  | 0x1        | .cmac0_reset_done                  |
+|         |         |  [0]  | 0x1        | .qdma_reset_done                   |
+-------------------------------------------------------------------------------
+
+# Dump as an integer (without tabular field information).
+regio-esnet-smartnic eval 'print(dev0.bar2.syscfg.shell_status)'
+0xffffffff
 ```
 
 Writing to registers or fields within a register
 ------------------------------------------------
-Field values can be set using enum names when defined for a given field
 ```
-$ sudo ./regio ht_datapath.port_config.output_enable=PORT1
+# Dump the state before making changes.
+regio-esnet-smartnic dump dev0.bar2.endian_check
+=================================================================================================
+|    Size |              Offset | Range | Value      | Path                                     |
+| (Bytes) |             (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2)       |
+-------------------------------------------------------------------------------------------------
+|      40 | 0x200400 - 0x200424 |       |            | endian_check                             |
+|       4 |            0x200400 |       | 0x00000000 | .scratchpad_packed                       |
+|       4 |            0x200404 |       | 0x00000000 | .scratchpad_packed_monitor_byte_0        |
+|         |                     | [7:0] | 0x00       | .scratchpad_packed_monitor_byte_0.byte_0 |
+|       4 |            0x200408 |       | 0x00000000 | .scratchpad_packed_monitor_byte_1        |
+|         |                     | [7:0] | 0x00       | .scratchpad_packed_monitor_byte_1.byte_1 |
+|       4 |            0x20040c |       | 0x00000000 | .scratchpad_packed_monitor_byte_2        |
+|         |                     | [7:0] | 0x00       | .scratchpad_packed_monitor_byte_2.byte_2 |
+|       4 |            0x200410 |       | 0x00000000 | .scratchpad_packed_monitor_byte_3        |
+|         |                     | [7:0] | 0x00       | .scratchpad_packed_monitor_byte_3.byte_2 |
+|       4 |            0x200414 |       | 0x00000000 | .scratchpad_unpacked_byte_0              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_0.byte_0       |
+|       4 |            0x200418 |       | 0x00000000 | .scratchpad_unpacked_byte_1              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_1.byte_1       |
+|       4 |            0x20041c |       | 0x00000000 | .scratchpad_unpacked_byte_2              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_2.byte_2       |
+|       4 |            0x200420 |       | 0x00000000 | .scratchpad_unpacked_byte_3              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_3.byte_3       |
+|       4 |            0x200424 |       | 0x00000000 | .scratchpad_unpacked_monitor             |
+-------------------------------------------------------------------------------------------------
+
+# Change a register's value.
+regio-esnet-smartnic eval dev0.bar2.endian_check.scratchpad_packed=0x12345678
+
+# Dump the state after making changes.
+regio-esnet-smartnic dump dev0.bar2.endian_check
+=================================================================================================
+|    Size |              Offset | Range | Value      | Path                                     |
+| (Bytes) |             (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2)       |
+-------------------------------------------------------------------------------------------------
+|      40 | 0x200400 - 0x200424 |       |            | endian_check                             |
+|       4 |            0x200400 |       | 0x12345678 | .scratchpad_packed                       |
+|       4 |            0x200404 |       | 0x00000078 | .scratchpad_packed_monitor_byte_0        |
+|         |                     | [7:0] | 0x78       | .scratchpad_packed_monitor_byte_0.byte_0 |
+|       4 |            0x200408 |       | 0x00000056 | .scratchpad_packed_monitor_byte_1        |
+|         |                     | [7:0] | 0x56       | .scratchpad_packed_monitor_byte_1.byte_1 |
+|       4 |            0x20040c |       | 0x00000034 | .scratchpad_packed_monitor_byte_2        |
+|         |                     | [7:0] | 0x34       | .scratchpad_packed_monitor_byte_2.byte_2 |
+|       4 |            0x200410 |       | 0x00000012 | .scratchpad_packed_monitor_byte_3        |
+|         |                     | [7:0] | 0x12       | .scratchpad_packed_monitor_byte_3.byte_2 |
+|       4 |            0x200414 |       | 0x00000000 | .scratchpad_unpacked_byte_0              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_0.byte_0       |
+|       4 |            0x200418 |       | 0x00000000 | .scratchpad_unpacked_byte_1              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_1.byte_1       |
+|       4 |            0x20041c |       | 0x00000000 | .scratchpad_unpacked_byte_2              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_2.byte_2       |
+|       4 |            0x200420 |       | 0x00000000 | .scratchpad_unpacked_byte_3              |
+|         |                     | [7:0] | 0x00       | .scratchpad_unpacked_byte_3.byte_3       |
+|       4 |            0x200424 |       | 0x00000000 | .scratchpad_unpacked_monitor             |
+-------------------------------------------------------------------------------------------------
+
+# Change a register field's value.
+regio-esnet-smartnic eval dev0.bar2.endian_check.scratchpad_unpacked_byte_0.byte_0=0xab
+
+# Dump the state after making changes.
+regio-esnet-smartnic dump dev0.bar2.endian_check.scratchpad_unpacked_byte_0
+================================================================================
+|    Size |   Offset | Range | Value      | Path                               |
+| (Bytes) |  (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2) |
+--------------------------------------------------------------------------------
+|       4 | 0x200414 |       | 0x000000ab | scratchpad_unpacked_byte_0         |
+|         |          | [7:0] | 0xab       | .byte_0                            |
+--------------------------------------------------------------------------------
 ```
 
-Register or field values can be written in binary (0b prefix), hex (0x prefix), octal (0o prefix) or decimal (no prefix)
+Register or field values can be written in binary (0b prefix), hex (0x prefix), octal (0o prefix) or decimal (no prefix).
 ```
-$ sudo ./regio ht_datapath.port_config.output_enable=0b01
-$ sudo ./regio ht_datapath.port_config=0xa
-```
+regio-esnet-smartnic eval dev0.bar2.endian_check.scratchpad_unpacked_byte_1.byte_1=0b1100_1101
+regio-esnet-smartnic dump dev0.bar2.endian_check.scratchpad_unpacked_byte_1
+================================================================================
+|    Size |   Offset | Range | Value      | Path                               |
+| (Bytes) |  (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2) |
+--------------------------------------------------------------------------------
+|       4 | 0x200418 |       | 0x000000cd | scratchpad_unpacked_byte_1         |
+|         |          | [7:0] | 0xcd       | .byte_1                            |
+--------------------------------------------------------------------------------
 
-Advanced usage
---------------
-The path to the regmap file may be specified as a command line parameter or as an environment variable.
-
-Example using command line option
-```
-sudo ./regio --regmap /tmp/hightouch-top-ir.yaml syscfg
-```
-
-Example using an environment variable
-```
-export REGIO_REGMAP=/tmp/hightouch-top-ir.yaml
-sudo ./regio syscfg
+regio-esnet-smartnic eval dev0.bar2.endian_check.scratchpad_unpacked_byte_2.byte_2=0o357
+regio-esnet-smartnic dump dev0.bar2.endian_check.scratchpad_unpacked_byte_2
+================================================================================
+|    Size |   Offset | Range | Value      | Path                               |
+| (Bytes) |  (Bytes) |       | (Hex)      | (dev0.bar2 => esnet_smartnic_bar2) |
+--------------------------------------------------------------------------------
+|       4 | 0x20041c |       | 0x000000ef | scratchpad_unpacked_byte_2         |
+|         |          | [7:0] | 0xef       | .byte_2                            |
+--------------------------------------------------------------------------------
 ```
 
 Tool regio-elaborate
