@@ -591,6 +591,7 @@ def elaborate_block(blk):
 
     # Elaborate the regs
     blk['synth_reg_cnt'] = 0
+    namespace = {}
     reg_offset = 0
     regs = []
     for reg in regs_in:
@@ -603,6 +604,13 @@ def elaborate_block(blk):
         rnew = elaborate_register(reg, reg_offset, reg_defaults, blk)
         regs.append(rnew)
         reg_offset += (rnew['width'] * rnew['count']) // 8
+
+        name = rnew['name']
+        if name in namespace:
+            error(reg, f'Duplicate register name "{name}"')
+            error(namespace[name], f'Existing register with name "{name}"')
+            fatal(blk, f'Attempting to duplicate register name "{name}"')
+        namespace[name] = reg
 
     blk['regs'] = regs
     blk['computed_size'] = reg_offset
