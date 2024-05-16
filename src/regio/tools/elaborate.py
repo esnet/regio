@@ -861,12 +861,12 @@ def elaborate_toplevel(top, blocks, decoders):
               show_default=True)
 @click.argument('yaml-file',
                 type=click.File('r'))
-def click_main(include_dir, output_file, file_type, yaml_file):
+def click_main(include_dirs, output_file, file_type, yaml_file):
     '''
     Reads in a concise yaml regmap definition and fully elaborates it to produce a self-contained,
     verbose regmap file that can be used by code generators.
     '''
-    regmap = parser.load(yaml_file, include_dir)
+    regmap = parser.load(yaml_file, include_dirs)
 
     blocks = new_object_cache()
     decoders = new_object_cache()
@@ -886,9 +886,11 @@ def click_main(include_dir, output_file, file_type, yaml_file):
 def main(inc_dir=None):
     inc_dir = str(Path.cwd()) if inc_dir is None else inc_dir
     click.option(
+        'include_dirs',
         '-i', '--include-dir',
         help='Include directory for block definitions',
-        default=Path(inc_dir).absolute().joinpath('blocks'),
+        default=[Path(inc_dir).absolute().joinpath('blocks')],
+        multiple=True,
         show_default=True,
         type=click.Path(exists=True, file_okay=False, resolve_path=True))(click_main)
     click_main()

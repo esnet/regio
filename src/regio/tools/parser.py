@@ -26,9 +26,9 @@ class CustomList(list): ...
 
 #---------------------------------------------------------------------------------------------------
 class Loader(yaml.SafeLoader):
-    def __init__(self, *pargs, include_dir=None, **kargs):
+    def __init__(self, *pargs, include_dirs=(), **kargs):
         super().__init__(*pargs, **kargs)
-        self._include_dir = include_dir
+        self._include_dirs = include_dirs
 
     def construct_custom_dict(self, node):
         # Create an empty mapping for the node. This is needed to support anchors.
@@ -51,8 +51,18 @@ class Loader(yaml.SafeLoader):
     def construct_custom_include(self, node):
         # Use the default method for parsing the included file's path.
         path = pathlib.Path(str(self.construct_scalar(node)))
-        if self._include_dir is not None:
-            path = self._include_dir / path
+
+        # Search for the included file within the provided include directories.
+        for inc_dir in self._include_dirs:
+            inc_path = (inc_dir / path).resolve()
+            if inc_path.exists():
+                path = inc_path
+                break
+        else:
+            include_dirs = ', '.join(self._include_dirs)
+            raise yaml.MarkedYAMLError(None, None,
+                f'Failed to find included file "{path}" in search directories: {include_dirs}',
+                node.start_mark)
 
         # Create an empty mapping for the node. This is needed to support anchors.
         data = CustomDict()
@@ -61,7 +71,7 @@ class Loader(yaml.SafeLoader):
 
         # Recursively load the included file.
         with path.open('r') as stream:
-            inc_data = load(stream, self._include_dir)
+            inc_data = load(stream, self._include_dirs)
 
         if not isinstance(inc_data, dict):
             raise yaml.MarkedYAMLError(None, None,
@@ -85,8 +95,8 @@ Dumper.add_representer(CustomDict, Dumper.represent_custom_dict)
 Dumper.add_representer(CustomList, Dumper.represent_custom_list)
 
 #---------------------------------------------------------------------------------------------------
-def load(stream, include_dir=None):
-    loader = Loader(stream, include_dir=include_dir)
+def load(stream, include_dirs=()):
+    loader = Loader(stream, include_dirs=include_dirs)
     try:
         return loader.get_single_data()
     finally:
