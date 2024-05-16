@@ -866,7 +866,7 @@ def click_main(include_dirs, output_file, file_type, yaml_file):
     Reads in a concise yaml regmap definition and fully elaborates it to produce a self-contained,
     verbose regmap file that can be used by code generators.
     '''
-    regmap = parser.load(yaml_file, include_dirs)
+    regmap = parser.load(yaml_file, include_dirs, {})
 
     blocks = new_object_cache()
     decoders = new_object_cache()

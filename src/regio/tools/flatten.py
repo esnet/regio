@@ -20,7 +20,7 @@ def click_main(include_dirs, output_file, yaml_file):
     """Reads in a concise yaml regmap definition and flattens it into
     a single yaml file"""
 
-    yaml = parser.load(yaml_file, include_dirs)
+    yaml = parser.load(yaml_file, include_dirs, {})
     parser.dump(yaml, output_file)
 
 def main(inc_dir=None):

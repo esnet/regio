@@ -26,9 +26,10 @@ class CustomList(list): ...
 
 #---------------------------------------------------------------------------------------------------
 class Loader(yaml.SafeLoader):
-    def __init__(self, *pargs, include_dirs=(), **kargs):
+    def __init__(self, *pargs, include_dirs=(), include_cache=None, **kargs):
         super().__init__(*pargs, **kargs)
         self._include_dirs = include_dirs
+        self._include_cache = include_cache
 
     def construct_custom_dict(self, node):
         # Create an empty mapping for the node. This is needed to support anchors.
@@ -64,20 +65,42 @@ class Loader(yaml.SafeLoader):
                 f'Failed to find included file "{path}" in search directories: {include_dirs}',
                 node.start_mark)
 
-        # Create an empty mapping for the node. This is needed to support anchors.
-        data = CustomDict()
-        data.___metadata___ = MetaData(node)
+        # Check the cache to see if the included file has already been loaded.
+        spath = str(path)
+        entry = None
+        cache = self._include_cache
+        if cache is not None:
+            parent = cache.setdefault(node.start_mark.name, {'includes': set()})
+            parent['includes'].add(spath)
+            entry = cache.get(spath)
+
+        if entry is None:
+            # Create an empty mapping for the node.
+            data = CustomDict()
+            data.___metadata___ = MetaData(node)
+
+            # Add the new include file to the cache.
+            if cache is not None:
+                cache[spath] = {
+                    'data': data,
+                    'includes': set(),
+                }
+        else:
+            data = entry['data']
+
+        # A generator is needed to support anchors.
         yield data
 
         # Recursively load the included file.
-        with path.open('r') as stream:
-            inc_data = load(stream, self._include_dirs)
+        if entry is None:
+            with path.open('r') as stream:
+                inc_data = load(stream, self._include_dirs, cache)
 
-        if not isinstance(inc_data, dict):
-            raise yaml.MarkedYAMLError(None, None,
-                f'Root of included file "{path}" must be specified as a mapping, '
-                f'not a {type(inc_data)}', node.start_mark)
-        data.update(inc_data)
+            if not isinstance(inc_data, dict):
+                raise yaml.MarkedYAMLError(None, None,
+                    f'Root of included file "{path}" must be specified as a mapping, '
+                    f'not a {type(inc_data)}', node.start_mark)
+            data.update(inc_data)
 
 Loader.add_constructor('tag:yaml.org,2002:map', Loader.construct_custom_dict)
 Loader.add_constructor('tag:yaml.org,2002:seq', Loader.construct_custom_list)
@@ -95,8 +118,8 @@ Dumper.add_representer(CustomDict, Dumper.represent_custom_dict)
 Dumper.add_representer(CustomList, Dumper.represent_custom_list)
 
 #---------------------------------------------------------------------------------------------------
-def load(stream, include_dirs=()):
-    loader = Loader(stream, include_dirs=include_dirs)
+def load(stream, include_dirs=(), include_cache=None):
+    loader = Loader(stream, include_dirs=include_dirs, include_cache=include_cache)
     try:
         return loader.get_single_data()
     finally:
