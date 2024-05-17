@@ -859,14 +859,18 @@ def elaborate_toplevel(top, blocks, decoders):
               type=click.Choice(['top', 'block', 'decoder']),
               default='top',
               show_default=True)
+@click.option('-l', '--loaded-paths',
+              help='File to write the paths of all YAML inputs loaded during elaboration',
+              type=click.File('w'))
 @click.argument('yaml-file',
                 type=click.File('r'))
-def click_main(include_dirs, output_file, file_type, yaml_file):
+def click_main(include_dirs, output_file, file_type, loaded_paths, yaml_file):
     '''
     Reads in a concise yaml regmap definition and fully elaborates it to produce a self-contained,
     verbose regmap file that can be used by code generators.
     '''
-    regmap = parser.load(yaml_file, include_dirs, {})
+    include_cache = {}
+    regmap = parser.load(yaml_file, include_dirs, include_cache)
 
     blocks = new_object_cache()
     decoders = new_object_cache()
@@ -881,6 +885,9 @@ def click_main(include_dirs, output_file, file_type, yaml_file):
         pass
 
     parser.dump(regmap, output_file)
+
+    if loaded_paths is not None:
+        loaded_paths.writelines(path + '\n' for path in sorted(include_cache))
 
 #---------------------------------------------------------------------------------------------------
 def main(inc_dir=None):
