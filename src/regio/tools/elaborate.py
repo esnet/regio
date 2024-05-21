@@ -516,6 +516,8 @@ def elaborate_register(reg, offset, defaults, parent):
         'offset': offset,
     })
 
+    data_width = rnew['data_width']
+    fld_offset = 0
     if 'meta' in reg:
         meta = reg['meta']
         if 'pad_until' in meta:
@@ -526,16 +528,24 @@ def elaborate_register(reg, offset, defaults, parent):
                 # No padding required
                 fatal(reg, f'Padding not required at offset 0x{offset:08x}')
             else:
+                data_width = 8
+                fld_offset += data_width
                 rnew.update({
-                    'name':   f'anon{parent["synth_reg_cnt"]:03d}',
-                    'access': 'none',
-                    'width':  8,
-                    'count':  (meta['pad_until'] - offset)
+                    'name':       f'anon{parent["synth_reg_cnt"]:03d}',
+                    'access':     'none',
+                    'data_width': data_width,
+                    'width':      data_width,
+                    'count':      meta['pad_until'] - offset,
                 })
                 parent['synth_reg_cnt'] += 1
     else:
         # merge in the yaml register definition
         rnew.update(reg)
+
+        width = rnew.get('width')
+        if width is not None and width > data_width:
+            data_width = ((width + data_width - 1) // data_width) * data_width
+            rnew['data_width'] = data_width
 
         # Elaborate the fields
         if 'fields' in rnew:
@@ -546,7 +556,6 @@ def elaborate_register(reg, offset, defaults, parent):
 
             rnew['synth_fld_cnt'] = 0
             namespace = {}
-            fld_offset = 0
             flds = []
             for fld in rnew['fields']:
                 if 'default' in fld:
@@ -567,8 +576,19 @@ def elaborate_register(reg, offset, defaults, parent):
                 namespace[name] = fld
 
             rnew['fields'] = flds
-            rnew['computed_width'] = fld_offset
             del rnew['synth_fld_cnt']
+        else:
+            if 'width' not in rnew:
+                rnew['width'] = data_width
+            fld_offset += rnew['width']
+
+        # Verify that the fields don't exceed the register's data width.
+        if fld_offset > data_width:
+            fatal(reg, f'Combined field width of {fld_offset} bits exceeds register data width '
+                  f'of {data_width} bits')
+
+    rnew['computed_width'] = fld_offset
+    rnew['computed_size'] = ((fld_offset + data_width - 1) // data_width) * (data_width // 8)
 
     elaborate_name(rnew)
 
@@ -581,6 +601,7 @@ def elaborate_block(blk):
 
     # Set up some default defaults
     reg_defaults = {
+        'data_width': 32,
         'count' : 1,
         'access' : 'ro',
         'init' : 0,
@@ -593,7 +614,7 @@ def elaborate_block(blk):
     if len(regs_in) == 0:
         regs_in.append({
             'meta': {
-                'pad_until': 1,
+                'pad_until': reg_defaults['data_width'] // 8,
             },
         })
 
@@ -611,7 +632,7 @@ def elaborate_block(blk):
 
         rnew = elaborate_register(reg, reg_offset, reg_defaults, blk)
         regs.append(rnew)
-        reg_offset += (rnew['width'] * rnew['count']) // 8
+        reg_offset += rnew['computed_size'] * rnew['count']
 
         name = rnew['name']
         if name in namespace:
