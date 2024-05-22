@@ -43,8 +43,6 @@ def pci_device_ids(vendor_id, device_id):
 def new_click_main(top, envvar_prefix=None):
     BAR_IDS = tuple(sorted(top.BAR_INFO))
     PCI_IDS = pci_device_ids(top.PCI_VENDOR, top.PCI_DEVICE)
-    if not PCI_IDS:
-        PCI_IDS = ('none',) # For testing.
 
     @click.group(
         invoke_without_command=True,
@@ -60,9 +58,8 @@ def new_click_main(top, envvar_prefix=None):
     @click.option(
         '-p', '--pci-id', 'pci_ids',
         help='Select PCIe device ID(s) to use for IO (domain:bus:device.function).',
-        type=click.Choice(('all',) + PCI_IDS),
-        default=(PCI_IDS[0],),
-        show_default=True,
+        type=click.Choice(('all', 'none') + PCI_IDS),
+        required=True,
         show_envvar=True,
         multiple=True,
     )
