@@ -40,7 +40,7 @@ def pci_device_ids(vendor_id, device_id):
     ))
 
 #---------------------------------------------------------------------------------------------------
-def new_click_main(top):
+def new_click_main(top, envvar_prefix=None):
     BAR_IDS = tuple(sorted(top.BAR_INFO))
     PCI_IDS = pci_device_ids(top.PCI_VENDOR, top.PCI_DEVICE)
     if not PCI_IDS:
@@ -50,6 +50,7 @@ def new_click_main(top):
         invoke_without_command=True,
         context_settings={
             'help_option_names': ('--help', '-h'),
+            'auto_envvar_prefix': envvar_prefix,
         },
         help=f'''
         Perform I/O operations on a PCI device using the {top.NAME} register mapping. Acceptable PCI
@@ -62,6 +63,7 @@ def new_click_main(top):
         type=click.Choice(('all',) + PCI_IDS),
         default=(PCI_IDS[0],),
         show_default=True,
+        show_envvar=True,
         multiple=True,
     )
     @click.option(
@@ -70,12 +72,14 @@ def new_click_main(top):
         type=click.Choice(('all',) + BAR_IDS),
         default=('2',), # TODO: Shouldn't be hardcoded. Get from YAML?
         show_default=True,
+        show_envvar=True,
         multiple=True,
     )
     @click.option(
         '-t', '--test-io',
         help='Run in test mode using an alternate IO type independent of hardware.',
         type=click.Choice(tuple(sorted(IO_TYPES))),
+        show_envvar=True,
     )
     @ClickEnvironment.main_options
     @click.pass_context
