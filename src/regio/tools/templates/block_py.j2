@@ -37,7 +37,7 @@ class {{ blk.name_lower }}_block(Structure):
     {%- set reg_width_rem = reg.width % data_width %}
     {%- if reg.count and reg.count > 1: %}
     class {{ reg.name_lower }}(Array, dimensions=({{ reg.count }},), offset={{ reg.offset // 4 }}): # 0x{{ '{:08X}'.format(reg.offset) }}
-        class value(Register, access='{{ reg.access | upper }}', offset=0, size={{ reg_size }}):{%- if not reg.fields and not reg.desc: %} ... {%- endif %}
+        class _r(Register, access='{{ reg.access | upper }}', offset=0, size={{ reg_size }}):{%- if not reg.fields and not reg.desc: %} ... {%- endif %}
             {%- if reg.desc %}
             '''
             {{ reg.desc | trim | replace('\n', '\n            ') }}
@@ -61,7 +61,7 @@ class {{ blk.name_lower }}_block(Structure):
             {%- endfor %}
         {%- endif %}
         {%- if (not reg.fields or non_none_fields == 0) and reg_width_rem != 0: %}
-            class value(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
+            class _f(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
         {%- endif %}
     {%- else: %}
     class {{ reg.name_lower }}(Register, access='{{ reg.access | upper }}', offset={{ reg.offset // 4 }}, size={{ reg_size }}): {%- if not reg.fields and not reg.desc: %} ... {%- endif %} # 0x{{ '{:08X}'.format(reg.offset) }}
@@ -88,7 +88,7 @@ class {{ blk.name_lower }}_block(Structure):
             {%- endfor %}
         {%- endif %}
         {%- if (not reg.fields or non_none_fields == 0) and reg_width_rem != 0: %}
-        class value(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
+        class _f(Field, access='{{ reg.access | upper }}', offset=0, width={{ reg.width }}): ...
         {%- endif %}
     {%- endif %}
 {%- endfor %}
