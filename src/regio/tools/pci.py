@@ -48,15 +48,13 @@ def new_click_main(top):
 
     @click.group(
         invoke_without_command=True,
-        add_help_option=False,
+        context_settings={
+            'help_option_names': ('--help', '-h'),
+        },
         help=f'''
         Perform I/O operations on a PCI device using the {top.NAME} register mapping. Acceptable PCI
         devices must have vendor ID 0x{top.PCI_VENDOR:04x} and device ID 0x{top.PCI_DEVICE:04x}.
         ''',
-    )
-    @click.help_option(
-        '--help', '-h',
-        help='Show this message and exit.',
     )
     @click.option(
         '-p', '--pci-id', 'pci_ids',
