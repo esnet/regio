@@ -498,7 +498,10 @@ A field within a register consists of the following attributes
   * wo: write-only
   * rw: read-write
   * none: used to denote auto-generated, anonymous padding fields
-* enum_hex: a dictionary of hex values and their labels which will appear as an enum in each language
+* enum_hex: a dictionary of hex values (given as strings) and their labels which will appear as an enum in each language
+  * Deprecated. Please use "enum" instead.
+  * Will be removed in a future release.
+* enum: a dictionary of integer values and their labels which will appear as an enum in each language
 
 Pseudo entry types
 

@@ -123,7 +123,8 @@ def validate_field(fld):
         ('access', str),
         ('count', int),
         ('desc', str),
-        ('enum_hex', dict),
+        ('enum', dict),
+        ('enum_hex', dict), # Deprecated.
         ('info', str),
         ('init', int),
         ('width', int),
@@ -146,42 +147,72 @@ def validate_field(fld):
     if count is not None and count < 1:
         fatal(fld, 'The "count" of a "{tag}" must be at least 1')
 
+    # Make sure that enumerations are specified in one way.
+    enums = fld.get('enum')
+    enums_hex = fld.get('enum_hex') # Deprecated.
+    if enums is not None and enums_hex is not None:
+        fatal(fld, f'Attempting to use both "enum" and the deprecated "enum_hex" attributes. '
+              'Please specify enumerations with "enum" only')
+
     # Verify the enumeration structure.
-    enums = fld.get('enum_hex')
     if enums is not None:
         labels = set()
-        values = set()
         for value, label in enums.items():
             # Validate the enumeration label.
             if not isinstance(label, str):
-                fatal(enums, f'Enumeration label "{label}" for value "{value}" must be specified '
-                      f'as a string, not a {type(label)}')
+                fatal(enums, f'Enumeration label "{label}" for value "{value}" must be '
+                      f'specified as a string, not a {type(label)}')
 
             # Check for duplicate enumeration labels.
             if label in labels:
                 fatal(enums, f'Duplicate enumeration label "{label}"')
             labels.add(label)
 
-            # Validate the enumeration value.
+            # Validate the enumeration value. No duplicate check since the value is the key.
             if not isinstance(value, int):
-                if isinstance(value, str):
-                    warning(enums, f'Enumeration value "{value}" with label "{label}" should be '
-                            'specified as an int.')
-                    try:
-                        ivalue = int(value, 16)
-                    except ValueError:
-                        fatal(enums, f'Enumeration value "{value}" with label "{label}" must be '
-                              'specified as a base-16 int')
+                fatal(enums, f'Enumeration value "{value}" must be specified as an int, not '
+                      f'a {type(value)}')
+
+    # Verify the deprecated enumeration structure.
+    if enums_hex is not None:
+        warning(enums_hex, f'Specifying enumerations using "enum_hex" is deprecated and will be '
+                'removed in the future. Please convert to using "enum" instead')
+
+        labels = set()
+        values = set()
+        for value, label in enums_hex.items():
+            # Validate the enumeration label.
+            if not isinstance(label, str):
+                fatal(enums_hex, f'Enumeration label "{label}" for value "{value}" must be '
+                      f'specified as a string, not a {type(label)}')
+
+            # Check for duplicate enumeration labels.
+            if label in labels:
+                fatal(enums_hex, f'Duplicate enumeration label "{label}"')
+            labels.add(label)
+
+            # Validate the enumeration value.
+            if isinstance(value, int):
+                warning(enums_hex, f'Enumeration value "{value}" with label "{label}" should be '
+                        'specified as a string. Consider adding quotations around the value')
+                svalue = str(value) # Converted to a string to match usage in templates/block_c.j2.
+            elif isinstance(value, str):
+                try:
+                    int(value, 16)
+                except ValueError:
+                    fatal(enums_hex, f'Enumeration value "{value}" with label "{label}" must be a '
+                          'string representing a valid base-16 int')
                 else:
-                    fatal(enums, f'Enumeration value "{value}" must be specified as an int, not a '
-                          f'{type(value)}')
+                    svalue = value
+            else:
+                fatal(enums_hex, f'Enumeration value "{value}" must be specified as a string, not '
+                      f'a {type(value)}')
 
             # Check for duplicate enumeration labels. Note that this will only catch duplications
             # of values speficied as both int and str. Duplicate values of the same type will not
             # be noticed due to the nature of the mapping.
-            svalue = str(value) # Converted to a string to match usage in templates/block_c.j2.
             if svalue in values:
-                fatal(enums, f'Duplicate enumeration value "{value}"')
+                fatal(enums_hex, f'Duplicate enumeration value "{value}"')
             values.add(svalue)
 
 #---------------------------------------------------------------------------------------------------
