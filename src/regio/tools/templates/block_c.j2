@@ -52,7 +52,13 @@ union {{ blk.name_lower }}_{{ reg.name_lower }} {
       {%- endif %}
     {%-   endfor %}
     {%- for field in reg.fields: %}
-      {%- if field.enum_hex: %}
+      {%- if field.enum: %}
+enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
+        {%- for value, label in field.enum.items(): %}
+  {{ "{:40}".format(blk.name_upper ~'_' ~ reg.name_upper ~ '_' ~ field.name_upper ~ '_' ~ label | upper()) }} = 0x{{ '{:X}'.format(value) }},
+        {%- endfor %}
+};
+      {%- elif field.enum_hex: %}{# deprecated #}
 enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
 	{%- for k, v in field.enum_hex.items(): %}
   {{ "{:40}".format(blk.name_upper ~'_' ~ reg.name_upper ~ '_' ~ field.name_upper ~ '_' ~ v | upper()) }} = 0x{{ k }},
