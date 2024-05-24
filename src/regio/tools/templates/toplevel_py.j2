@@ -25,6 +25,9 @@ from regio.tools.pci import new_proxy
 {% for blk in blks.keys() | sort: %}
 from .blocks.{{ blk }}_block import *
 {%- endfor %}
+{% for dec in decs.keys() | sort: %}
+from .decoders.{{ dec }}_decoder import *
+{%- endfor %}
 
 BAR_INFO = {}
 {%- set data_width = 32 %}{#- TODO: Shouldn't be hardcoded. Get from YAML? #}
@@ -45,9 +48,11 @@ class {{ class_name }}(AddressSpace, data_width={{ data_width }}, pad_to={{ bar.
     '''
     {%- endif %}
 
-    {%- for region in (bar.regions + bar.padding) | sort(attribute='offset'): %}
+    {%- for region in bar.regions | sort(attribute='offset'): %}
         {%- if 'block' in region: %}
     class {{ region.name_lower }}({{ region.block.name_lower }}_block, offset={{ region.offset // data_size }}, pad_to={{ region.size // data_size }}): ... # 0x{{ '{:08X}'.format(region.offset) }}
+        {%- elif 'decoder' in region: %}
+    class {{ region.name_lower }}({{ region.decoder.name_lower }}_decoder, offset={{ region.offset // data_size }}, pad_to={{ region.size // data_size }}): ... # 0x{{ '{:08X}'.format(region.offset) }}
         {%- endif %}
     {%- endfor %}
 

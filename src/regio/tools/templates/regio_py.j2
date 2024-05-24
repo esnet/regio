@@ -9,7 +9,7 @@ from . import toplevel
 
 #---------------------------------------------------------------------------------------------------
 def main():
-    pci.new_click_main(toplevel)()
+    pci.new_click_main(toplevel, 'REGIO_{{ top.name_upper }}')()
 
 if __name__ == '__main__':
     main()

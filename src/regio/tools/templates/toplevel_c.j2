@@ -20,6 +20,9 @@
 {% for blk in blks.keys() | sort: %}
 #include "{{ blk }}_block.h"
 {%- endfor %}
+{% for dec in decs.keys() | sort: %}
+#include "{{ dec }}_decoder.h"
+{%- endfor %}
 
 {% for barid, bar in top.bars.items(): %}
 /*
@@ -32,6 +35,8 @@ struct {{ top.name_lower }}_{{ bar.name_lower }} {
 {%- for region in (bar.regions + bar.padding) | sort(attribute='offset'): %}
   {%- if 'block' in region: %}
   struct  {{ "{:40}".format("{}_block {};".format(region.block.name_lower, region.name_lower)) }}  // {{ "0x{:08X}".format(region.offset) }}
+  {%- elif 'decoder' in region: %}
+  struct  {{ "{:40}".format("{}_decoder {};".format(region.decoder.name_lower, region.name_lower)) }}  // {{ "0x{:08X}".format(region.offset) }}
   {%- else %}
   uint8_t anon_{{ "{:05X}[{}];".format(region['offset'], region['size']) }}
   {%- endif %}

@@ -8,32 +8,26 @@ import sys
 
 from jinja2 import Template, Environment, FileSystemLoader
 
-from yaml import load, dump
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
+from . import parser
+
+def targets_from_list(objects, target_key, recurse_key, recurse):
+    targets = {}
+    for obj in objects:
+        tgt = obj.get(target_key)
+        if tgt is not None:
+            targets[tgt['name']] = tgt
+            if recurse:
+                targets.update(targets_from_list(tgt[recurse_key], target_key, recurse_key, True))
+    return targets
 
 def blocks_from_regions(regions):
-    blks = {}
-    for region in regions:
-        if 'block' in region:
-            blk = region['block']
-            blks.update({
-                blk['name'] : blk
-            })
-    return blks
+    return targets_from_list(regions, 'block', 'regions', False)
 
-def get_decoder_tree(root):
-    decoders = {}
-    for intf in root['interfaces']:
-        if 'decoder' in intf:
-            dec = intf['decoder']
-            decoders.update(get_decoder_tree(dec))
-    decoders.update({
-        root['name'] : root
-    })
-    return decoders
+def decoders_from_regions(regions, recurse=False):
+    return targets_from_list(regions, 'decoder', 'regions', recurse)
+
+def decoders_from_interfaces(interfaces):
+    return targets_from_list(interfaces, 'decoder', 'interfaces', True)
 
 @click.command()
 @click.option('-t', '--template-dir',
@@ -69,71 +63,79 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
     env = Environment(loader=FileSystemLoader(str(template_dir)))
     env.add_extension('jinja2.ext.loopcontrols')
 
-    regmap = load(yaml_file, Loader=Loader)
+    regmap = parser.load(yaml_file)
 
+    top = None
+    blks = {}
+    all_decs = {}
+    visible_decs = {}
     if file_type == "top":
         top = regmap['toplevel']
-        blks = {}
-        decs = {}
+        top_blks = {}
+        top_decs = {}
+        for bar in top['bars'].values():
+            # Add all blocks and decoders referenced by all regions in the bar
+            regions = bar['regions']
+            top_blks.update(blocks_from_regions(regions))
+            top_decs.update(decoders_from_regions(regions))
+
+            if recursive:
+                dec = bar['decoder']
+                all_decs[dec['name']] = dec
+
         if recursive:
-            for _, bar in top['bars'].items():
-                # Add all blocks and decoders referenced by all regions in the bar
-                blks.update(blocks_from_regions(bar['regions']))
-
-                if 'decoder' in bar:
-                    decs.update(get_decoder_tree(bar['decoder']))
-
+            visible_decs.update(top_decs)
     elif file_type == "decoder":
-        top = None
-        decs = {
-            regmap['name'] : regmap
-        }
-        blks = {}
-        if recursive:
-            blks.update(blocks_from_regions(regmap['regions']))
-            decs.update(get_decoder_tree(regmap))
-
+        name = regmap['name']
+        all_decs[name] = regmap
+        visible_decs[name] = regmap # Force decoder to be visible to generate sources.
     elif file_type == "block":
-        top = None
-        decs = {}
-        blks = {
-            regmap['name'] : regmap
-        }
+        blks[regmap['name']] = regmap
     else:
         print("ERROR: No generator implemented for file type {}".format(file_type))
         sys.exit(1)
+
+    if recursive:
+        for dec in list(visible_decs.values()): # list is needed to prevent in-place update
+            visible_decs.update(decoders_from_regions(dec['regions'], True))
+
+        for dec in list(all_decs.values()): # list is needed to prevent in-place update
+            all_decs.update(decoders_from_interfaces(dec['interfaces']))
+
+        for dec in all_decs.values():
+            blks.update(blocks_from_regions(dec['regions']))
 
     if 'sv' in generators:
         # for sv generators, produce only the outputs for the given file type, not for dependent file types
 
         # Produce all System Verilog output files for blocks
-        for _, blk in blks.items():
+        for name, blk in blks.items():
             t = env.get_template('reg_pkg_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_pkg.sv')
+            outfilename = Path(output_dir) / (prefix + name + '_reg_pkg.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
 
             t = env.get_template('reg_intf_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_intf.sv')
+            outfilename = Path(output_dir) / (prefix + name + '_reg_intf.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
-            
+
             t = env.get_template('reg_blk_sv.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_reg_blk.sv')
+            outfilename = Path(output_dir) / (prefix + name + '_reg_blk.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
 
         # Produce all System Verilog output files for decoders
-        for _, dec in decs.items():
+        for name, dec in all_decs.items():
             dec_blks = blocks_from_regions(dec['regions'])
 
             t = env.get_template('decoder_pkg_sv.j2')
-            outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder_pkg.sv')
+            outfilename = Path(output_dir) / (prefix + name + '_decoder_pkg.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(dec = dec, blks = dec_blks).dump(f)
 
             t = env.get_template('decoder_sv.j2')
-            outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder.sv')
+            outfilename = Path(output_dir) / (prefix + name + '_decoder.sv')
             with outfilename.open(mode='w') as f:
                 t.stream(dec = dec, blks = dec_blks).dump(f)
 
@@ -141,11 +143,11 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
         # for svh generators, produce only the outputs for the given file type, not for dependent file types
 
         # Produce all System Verilog header files for blocks.
-        for _, blk in blks.items():
+        for name, blk in blks.items():
             t = env.get_template('reg_blk_agent_svh.j2')
             # Don't include prefix here.
             # These header files get bundled into verif package. The prefix is applied to the package file only.
-            outfilename = Path(output_dir) / (blk['name'] + '_reg_blk_agent.svh')
+            outfilename = Path(output_dir) / (name + '_reg_blk_agent.svh')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk).dump(f)
 
@@ -157,7 +159,7 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             t = env.get_template('toplevel_c.j2')
             outfilename = Path(output_dir) / (prefix + top['name'] + '_toplevel.h')
             with outfilename.open(mode='w') as f:
-                t.stream(top = top, blks = blks).dump(f)
+                t.stream(top = top, blks = top_blks, decs = top_decs).dump(f)
 
         ctypes = {
              8 : "uint8_t ",
@@ -166,19 +168,20 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             64 : "uint64_t",
         }
 
-        for _, blk in blks.items():
+        for name, blk in blks.items():
             t = env.get_template('block_c.j2')
-            outfilename = Path(output_dir) / (prefix + blk['name'] + '_block.h')
+            outfilename = Path(output_dir) / (prefix + name + '_block.h')
             with outfilename.open(mode='w') as f:
                 t.stream(blk = blk, ctypes=ctypes).dump(f)
 
-        for _,dec in decs.items():
+        for name, dec in visible_decs.items():
             dec_blks = blocks_from_regions(dec['regions'])
+            sub_decs = decoders_from_regions(dec['regions'])
 
             t = env.get_template('decoder_c.j2')
-            outfilename = Path(output_dir) / (prefix + dec['name'] + '_decoder.h')
+            outfilename = Path(output_dir) / (prefix + name + '_decoder.h')
             with outfilename.open(mode='w') as f:
-                t.stream(dec = dec, blks = dec_blks, ctypes=ctypes).dump(f)
+                t.stream(dec = dec, blks = dec_blks, decs = sub_decs, ctypes=ctypes).dump(f)
 
     if 'py' in generators:
         # for Python generators, produce all relevant dependent types
@@ -193,18 +196,23 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             #        |-- __init__.py
             #        |-- toplevel.py
             #        |-- regio.py
-            #        \-- blocks/
+            #        |-- blocks/
+            #        |   |-- __init__.py
+            #        |   |-- block_0.py
+            #        |   :
+            #        |   \-- block_M.py
+            #        \-- decoders/
             #            |-- __init__.py
-            #            |-- block_0.py
+            #            |-- decoder_0.py
             #            :
-            #            \-- block_N.py
+            #            \-- decoder_N.py
             output_path /= 'python'
             output_path.mkdir()
 
             t = env.get_template('pyproject_toml.j2')
             outfilename = output_path / 'pyproject.toml'
             with outfilename.open(mode='w') as f:
-                t.stream(top = top, blks = blks).dump(f)
+                t.stream(top = top).dump(f)
 
             output_path /= ('regmap_' + top['name'])
             output_path.mkdir()
@@ -216,25 +224,41 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             t = env.get_template('toplevel_py.j2')
             outfilename = output_path / 'toplevel.py'
             with outfilename.open(mode='w') as f:
-                t.stream(top = top, blks = blks).dump(f)
+                t.stream(top = top, blks = top_blks, decs = top_decs).dump(f)
 
             t = env.get_template('regio_py.j2')
             outfilename = output_path / 'regio.py'
             with outfilename.open(mode='w') as f:
-                t.stream(top = top, blks = blks).dump(f)
+                t.stream(top = top).dump(f)
 
-            output_path /= 'blocks'
-            output_path.mkdir()
+            sub_dirs = []
+            if blks:
+                sub_dirs.append('blocks')
+            if visible_decs:
+                sub_dirs.append('decoders')
 
-            outfilename = output_path / '__init__.py'
+            for sub_dir in sub_dirs:
+                out_path = output_path / sub_dir
+                out_path.mkdir()
+
+                outfilename = out_path / '__init__.py'
+                with outfilename.open(mode='w') as f:
+                    f.write('# NOTE: This file was autogenerated by regio.\n')
+
+        blk_tmpl = env.get_template('block_py.j2')
+        for name, blk in blks.items():
+            outfilename = output_path / ('' if top is None else 'blocks') / (name + '_block.py')
             with outfilename.open(mode='w') as f:
-                f.write('# NOTE: This file was autogenerated by regio.\n')
+                blk_tmpl.stream(blk = blk).dump(f)
 
-        for _, blk in blks.items():
-            t = env.get_template('block_py.j2')
-            outfilename = output_path / (blk['name'] + '_block.py')
+        dec_tmpl = env.get_template('decoder_py.j2')
+        for name, dec in visible_decs.items():
+            dec_blks = blocks_from_regions(dec['regions'])
+            sub_decs = decoders_from_regions(dec['regions'])
+
+            outfilename = output_path / ('' if top is None else 'decoders') / (name + '_decoder.py')
             with outfilename.open(mode='w') as f:
-                t.stream(blk = blk).dump(f)
+                dec_tmpl.stream(dec = dec, blks = dec_blks, decs = sub_decs).dump(f)
 
 def main():
     click_main()

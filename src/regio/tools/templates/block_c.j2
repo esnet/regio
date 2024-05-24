@@ -52,7 +52,13 @@ union {{ blk.name_lower }}_{{ reg.name_lower }} {
       {%- endif %}
     {%-   endfor %}
     {%- for field in reg.fields: %}
-      {%- if field.enum_hex: %}
+      {%- if field.enum: %}
+enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
+        {%- for value, label in field.enum.items(): %}
+  {{ "{:40}".format(blk.name_upper ~'_' ~ reg.name_upper ~ '_' ~ field.name_upper ~ '_' ~ label | upper()) }} = 0x{{ '{:X}'.format(value) }},
+        {%- endfor %}
+};
+      {%- elif field.enum_hex: %}{# deprecated #}
 enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
 	{%- for k, v in field.enum_hex.items(): %}
   {{ "{:40}".format(blk.name_upper ~'_' ~ reg.name_upper ~ '_' ~ field.name_upper ~ '_' ~ v | upper()) }} = 0x{{ k }},
@@ -74,17 +80,19 @@ enum {{ blk.name_lower }}_{{ reg.name_lower }}_{{ field.name_lower }} {
 
 struct {{ blk.name_lower }}_block {
 {%- for reg in blk.regs: %}
+  {%- set data_width = reg.data_width if reg.data_width else reg.width %}
+
   {%- if reg.count and reg.count > 1: %}
     {%- if reg.fields: %}
   {{ "{:60}".format('union ' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
     {%- else: %}
-  {{ "{:60}".format(ctypes[reg.width] ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
+  {{ "{:60}".format(ctypes[data_width] ~ ' ' ~ reg.name_lower ~ '[' ~ reg.count ~ '];') }} //
     {%- endif %}
   {%- else: %}
     {%- if reg.fields: %}
   {{ "{:60}".format('union ' ~ blk.name_lower ~ '_' ~ reg.name_lower ~ ' ' ~ reg.name_lower ~ ';') }} //
     {%- else: %}
-  {{ "{:60}".format(ctypes[reg.width] ~ ' ' ~ reg.name_lower ~ ';') }} //
+  {{ "{:60}".format(ctypes[data_width] ~ ' ' ~ reg.name_lower ~ ';') }} //
     {%- endif %}
   {%- endif %}
   {%- if reg.access != "none": %}
