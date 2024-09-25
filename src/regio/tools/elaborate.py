@@ -445,7 +445,7 @@ def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
             size = region['size']
             start = region['offset']
             end = start + size
-            name = region.get('block', {}).get('name', '+++')
+            name = region.get('block', region.get('decoder', {})).get('name', '+++')
             stderr(f'\t0x{start:08x}-0x{end:08x} {name} ({size} (0x{size:08x}) bytes)')
 
     # Compute any required padding before the first region or between regions
