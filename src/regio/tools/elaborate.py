@@ -87,8 +87,7 @@ def new_object_cache():
 def is_cached_object(obj, cache):
     return id(obj) in cache['by_id']
 
-def add_cached_object(obj, cache, parent, label):
-    name = obj['name']
+def _add_cached_object(name, obj, cache, parent, label):
     instances = cache['by_name'].get(name)
     if instances is None:
         cache['by_name'][name] = [obj]
@@ -111,10 +110,14 @@ def add_cached_object(obj, cache, parent, label):
     cache['by_name'][name].append(obj)
     cache['by_id'].add(id(obj))
 
+def add_cached_object(obj, cache, parent, label):
+    _add_cached_object(obj['name'], obj, cache, parent, label)
+
 def new_caches():
     return types.SimpleNamespace(
         blocks=new_object_cache(),
         decoders=new_object_cache(),
+        protocols=new_object_cache(),
     )
 
 def add_cached_block(blk, caches, parent):
@@ -128,6 +131,10 @@ def add_cached_decoder(dec, caches, parent):
 
 def is_cached_decoder(dec, caches):
     return is_cached_object(dec, caches.decoders)
+
+def add_cached_protocol(proto, caches, parent):
+    # Note: Only the protocol source needs to be checked for uniqueness.
+    _add_cached_object(proto['name'], proto['source'], caches.protocols, parent, 'protocol')
 
 #---------------------------------------------------------------------------------------------------
 def validate_attrs(obj, required, optional, deprecated, tag):
@@ -381,6 +388,74 @@ def validate_register(reg):
         fatal(reg, f'The "count" of a "{tag}" must be at least 1')
 
 #---------------------------------------------------------------------------------------------------
+def validate_protocol(proto):
+    tag = 'protocol'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('name', str),
+        ('source', (str, dict)),
+    )
+    OPTIONAL = (
+        ('class', dict),
+    )
+    validate_attrs(proto, REQUIRED, OPTIONAL, (), tag)
+
+    key = 'source'
+    src = proto[key]
+    if isinstance(src, str):
+        proto[key] = {'data': src}
+    else:
+        REQUIRED = (
+            ('data', str),
+        )
+        validate_attrs(src, REQUIRED, (), (), tag + '-' + key)
+
+    # Validate the overrides of the class attributes.
+    key = 'class'
+    cls = proto.get(key)
+    if cls is not None:
+        OPTIONAL = (
+            ('args', dict),
+            ('name', str),
+        )
+        validate_attrs(cls, (), OPTIONAL, (), tag + '-' + key)
+
+#---------------------------------------------------------------------------------------------------
+def validate_protocol_view(view):
+    tag = 'protocol-view'
+
+    # Validate the object's attributes.
+    REQUIRED = (
+        ('name', str),
+    )
+    OPTIONAL = (
+        ('class', dict),
+        ('block', dict),
+        ('decoder', dict),
+        ('protocol', dict),
+    )
+    validate_attrs(view, REQUIRED, OPTIONAL, (), tag)
+
+    # Make sure that the view has a target block or decoder, but not both.
+    if 'block' in view and 'decoder' in view:
+        fatal(view, f'Must specify the target for the "{tag}" using either the "block" or '
+              '"decoder" attribute, not both')
+    if 'block' not in view and 'decoder' not in view:
+        fatal(view, f'Missing the target for the "{tag}". Specify using either the "block" or '
+              '"decoder" attribute')
+
+    # Validate the overrides of the protocol class attributes.
+    key = 'class'
+    cls = view.get(key)
+    if cls is not None:
+        OPTIONAL = (
+            ('args', dict),
+            ('name', str),
+        )
+        validate_attrs(cls, (), OPTIONAL, (), tag + '-' + key)
+
+#---------------------------------------------------------------------------------------------------
 def validate_block(blk):
     tag = 'block'
     if not isinstance(blk, dict):
@@ -395,6 +470,7 @@ def validate_block(blk):
     OPTIONAL = (
         ('data_width', int),
         ('desc', str),
+        ('protocol', dict),
     )
     validate_attrs(blk, REQUIRED, OPTIONAL, (), tag)
 
@@ -427,6 +503,7 @@ def validate_interface(intf):
         ('name', str),
         ('size', int),
         ('suffix', str),
+        ('view', dict),
         ('width', int),
     )
     validate_attrs(intf, REQUIRED, OPTIONAL, (), tag)
@@ -468,6 +545,7 @@ def validate_decoder(dec):
         ('data_width', int),
         ('decoders', dict),
         ('info', str),
+        ('protocol', dict),
         ('visible', bool),
     )
     validate_attrs(dec, REQUIRED, OPTIONAL, (), tag)
@@ -751,9 +829,65 @@ def elaborate_register(reg, offset, defaults, parent):
     return rnew
 
 #---------------------------------------------------------------------------------------------------
-def elaborate_block(blk):
+def elaborate_protocol(proto, caches, parent):
+    validate_protocol(proto)
+    elaborate_name(proto)
+    add_cached_protocol(proto, caches, parent)
+
+#---------------------------------------------------------------------------------------------------
+def elaborate_protocol_view(view, caches, parent):
+    validate_protocol_view(view)
+    elaborate_name(view)
+
+    # Determine the protocol used to access the view.
+    # - The view can explicitely define a custom protocol.
+    # - The view relies on the default protocol defined within it's target block/decoder.
+    proto = view.get('protocol')
+    if proto is not None:
+        # Use custom protocol.
+        elaborate_protocol(proto, caches, view)
+    else:
+        # Use default protocol.
+        tgt = 'block'
+        if tgt not in parent:
+            tgt = 'decoder'
+
+        proto = parent.get(tgt, {}).get('protocol')
+        if proto is None:
+            error(view, 'Missing protocol for view')
+            fatal(parent, 'Target "{tgt}" is missing default protocol for accessing the view')
+        view['protocol'] = proto
+
+    # Merge the class info from the view and protocol. The view has priority to override.
+    cls = {'name': 'Protocol', 'args': {}}
+    pcls = proto.get('class', {})
+    vcls = view.get('class', {})
+
+    cls.update(pcls)
+    cls.update(vcls)
+
+    # Since the args are themselves a mapping, they also need to be merged.
+    if 'args' in vcls:
+        args = {}
+        args.update(pcls.get('args', {}))
+        args.update(vcls['args'])
+        cls['args'] = args
+
+    view['class'] = cls
+
+#---------------------------------------------------------------------------------------------------
+def elaborate_block(blk, caches):
     validate_block(blk)
     elaborate_name(blk)
+
+    # Elaborate any blocks and decoders referenced by the protocol
+    elaborate_blocks(blk, caches)
+    elaborate_decoders(blk, caches)
+
+    # Elaborate the optional protocol supported by the block
+    proto = blk.get('protocol')
+    if proto is not None:
+        elaborate_protocol(proto, caches, blk)
 
     # Set up some default defaults
     data_width = blk.setdefault('data_width', DEFAULT_DATA_WIDTH)
@@ -803,8 +937,23 @@ def elaborate_block(blk):
     del blk['synth_reg_cnt']
 
 #---------------------------------------------------------------------------------------------------
-def elaborate_interface(intf, idx, parent):
+def elaborate_blocks(parent, caches):
+    blks = parent.get('blocks')
+    if blks is None:
+        return
+
+    for blk in blks.values():
+        if not is_cached_block(blk, caches):
+            elaborate_block(blk, caches)
+            add_cached_block(blk, caches, parent)
+
+#---------------------------------------------------------------------------------------------------
+def elaborate_interface(intf, idx, parent, caches):
     validate_interface(intf)
+
+    view = intf.get('view')
+    if view is not None:
+        elaborate_protocol_view(view, caches, intf)
 
     if 'size' in intf:
         # size is explicitly specified and may not be a power of 2
@@ -825,6 +974,14 @@ def elaborate_interface(intf, idx, parent):
             fatal(parent, f'Attempting to duplicate region name "{name}"')
         namespace[name] = intf
 
+    def process_view(view, new_region, suffix):
+        if view is not None:
+            new_view = view.copy()
+            new_view['name'] += suffix
+            elaborate_name(new_view)
+            check_namespace(new_view)
+            new_region['view'] = new_view
+
     intf['regions'] = []
     intf['padding'] = []
     suffix = intf.get('suffix', '')
@@ -841,7 +998,10 @@ def elaborate_interface(intf, idx, parent):
             }
             elaborate_name(new_region)
             check_namespace(new_region)
+            process_view(view, new_region, suffix)
             intf['regions'].append(new_region)
+        elif view is not None:
+            fatal(intf, f'Attempting to define a view on a transparent decoder')
         else:
             # bubble the regions upward, adding in this interface's offset
             for region in dec['regions']:
@@ -850,6 +1010,7 @@ def elaborate_interface(intf, idx, parent):
                 new_region['name'] += suffix
                 elaborate_name(new_region)
                 check_namespace(new_region)
+                process_view(new_region.get('view'), new_region, suffix)
                 intf['regions'].append(new_region)
 
             # bubble the padding upward, adding in this interface's offset
@@ -870,6 +1031,7 @@ def elaborate_interface(intf, idx, parent):
         }
         elaborate_name(new_region)
         check_namespace(new_region)
+        process_view(view, new_region, suffix)
         intf['regions'].append(new_region)
         intf['data_width'] = blk['data_width']
 
@@ -892,22 +1054,18 @@ def elaborate_interface(intf, idx, parent):
 #---------------------------------------------------------------------------------------------------
 def elaborate_decoder(dec, caches):
     validate_decoder(dec)
-
-    # Elaborate any referenced child blocks
-    if 'blocks' in dec:
-        for blk in dec['blocks'].values():
-            if not is_cached_block(blk, caches):
-                elaborate_block(blk)
-                add_cached_block(blk, caches, dec)
-
-    # Elaborate any referenced child decoders
-    if 'decoders' in dec:
-        for d in dec['decoders'].values():
-            if not is_cached_decoder(d, caches):
-                elaborate_decoder(d, caches)
-                add_cached_decoder(d, caches, dec)
-
     elaborate_name(dec)
+
+    # Elaborate any referenced child blocks and decoders
+    elaborate_blocks(dec, caches)
+    elaborate_decoders(dec, caches)
+
+    # Elaborate the optional protocol supported by the decoder
+    proto = dec.get('protocol')
+    if proto is not None:
+        if not dec.get('visible', False):
+            fatal(proto, f'A decoder must be visible to support a protocol')
+        elaborate_protocol(proto, caches, dec)
 
     # Elaborate the region list from the interfaces defined in this decoder
     dec['regions'] = []
@@ -916,7 +1074,7 @@ def elaborate_decoder(dec, caches):
     data_width = dec.get('data_width')
     if 'interfaces' in dec:
         for idx, intf in enumerate(dec['interfaces']):
-            elaborate_interface(intf, idx, dec)
+            elaborate_interface(intf, idx, dec, caches)
 
             intf_data_width = intf['data_width']
             if data_width is None:
@@ -938,6 +1096,17 @@ def elaborate_decoder(dec, caches):
     decoder_padding, decoder_size = compute_region_padding(dec['regions'], dec['padding'], 0, None)
     dec['padding'].extend(decoder_padding)
     dec['size'] = decoder_size
+
+#---------------------------------------------------------------------------------------------------
+def elaborate_decoders(parent, caches):
+    decs = parent.get('decoders')
+    if decs is None:
+        return
+
+    for dec in decs.values():
+        if not is_cached_decoder(dec, caches):
+            elaborate_decoder(dec, caches)
+            add_cached_decoder(dec, caches, parent)
 
 #---------------------------------------------------------------------------------------------------
 def elaborate_bar(bar, caches):
@@ -1001,7 +1170,7 @@ def click_main(include_dirs, output_file, file_type, loaded_paths, yaml_file):
         toplevel = regmap['toplevel']
         elaborate_toplevel(toplevel, caches)
     elif file_type == 'block':
-        elaborate_block(regmap)
+        elaborate_block(regmap, caches)
     elif file_type == 'decoder':
         elaborate_decoder(regmap, caches)
     else:
