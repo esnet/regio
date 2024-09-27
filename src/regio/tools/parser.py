@@ -52,6 +52,7 @@ class Loader(yaml.SafeLoader):
     def construct_custom_include(self, node):
         # Use the default method for parsing the included file's path.
         path = pathlib.Path(str(self.construct_scalar(node)))
+        is_yaml = path.suffix in ('.yaml', '.yml')
 
         # Search for the included file within the provided include directories.
         for inc_dir in self._include_dirs:
@@ -93,8 +94,13 @@ class Loader(yaml.SafeLoader):
 
         # Recursively load the included file.
         if entry is None:
-            with path.open('r') as stream:
-                inc_data = load(stream, self._include_dirs, cache)
+            with path.open('r', encoding='utf-8') as stream:
+                if is_yaml:
+                    # Treat the contents of YAML files as mappings and all other types as strings.
+                    inc_data = load(stream, self._include_dirs, cache)
+                else:
+                    # Treat the contents of non-YAML files as strings.
+                    inc_data = {'data': stream.read()}
 
             if not isinstance(inc_data, dict):
                 raise yaml.MarkedYAMLError(None, None,
