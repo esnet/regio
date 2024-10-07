@@ -100,7 +100,8 @@ class Region:
 
         if not reset:
             self._align_to_outer(data_width)
-        self.info.offset = self.pause(reset)
+        current = self.pause(reset)
+        self.info.offset = self.active.current if reset else current
 
         if self.in_bits:
             self.info.base = self.parent.info.base
