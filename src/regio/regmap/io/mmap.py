@@ -8,7 +8,6 @@ import struct
 
 from . import ffi
 from . import io
-from ..spec import info
 
 try:
     from . import mmap_ext
@@ -216,9 +215,6 @@ else:
 
 #---------------------------------------------------------------------------------------------------
 class DevMmapIO(MmapDirectIO): ...
-class DevMmapIOForSpec(DevMmapIO):
-    def __init__(self, spec, path, *pargs, **kargs):
-        super().__init__(path, info.data_width_of(spec), *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
 class FileMmapIO(MmapDirectIO):
@@ -236,9 +232,3 @@ class FileMmapIO(MmapDirectIO):
 
         # Map the file into the virtual address space.
         super().start()
-
-#---------------------------------------------------------------------------------------------------
-class FileMmapIOForSpec(FileMmapIO):
-    def __init__(self, spec, path, *pargs, **kargs):
-        region = info.region_of(spec)
-        super().__init__(path, region.octets, region.data_width, *pargs, **kargs)

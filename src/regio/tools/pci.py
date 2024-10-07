@@ -8,7 +8,7 @@ import click
 import pathlib
 import sys
 
-from regio.regmap.io import *
+from regio.regmap.io.methods import *
 from regio.regmap.proxy import ClickEnvironment, for_io_by_path
 
 #---------------------------------------------------------------------------------------------------

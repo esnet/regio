@@ -4,8 +4,6 @@ __all__ = ()
 import enum
 import sys
 
-from ..spec import info
-
 #---------------------------------------------------------------------------------------------------
 class Endian(enum.Enum):
     NATIVE = enum.auto()
@@ -163,12 +161,6 @@ class ListIO(IO):
             value >>= self.data_width
             offset += 1
             size -= 1
-
-#---------------------------------------------------------------------------------------------------
-class ListIOForSpec(ListIO):
-    def __init__(self, spec, *pargs, **kargs):
-        region = info.region_of(spec)
-        super().__init__(region.size, region.data_width, *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
 class DictIO(IO):
