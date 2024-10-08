@@ -18,6 +18,7 @@ class Variable:
         # buffered copy of it (by value).
         if initializer is Ellipsis:
             # By reference.
+            self.is_buffered = False
             self._context = ctx
         else:
             # By value.
@@ -25,6 +26,7 @@ class Variable:
             # TODO: Should be able to use a custom buffer based on array.array(), where the index
             #       is the register ordinal, adjusted for the first register in the sub-tree (all
             #       registers in the sub-tree will be in a contiguous ordinal range).
+            self.is_buffered = True
             llio = ctx.io.llio if isinstance(ctx.io, io.BufferedIO) else ctx.io
             self._context = ctx.copy(io.BufferedIO(llio))
             self.load(initializer)
@@ -33,6 +35,9 @@ class Variable:
         self.proxy = self._context.new_proxy(node, chain)
 
     def load(self, initializer=None):
+        if not self.is_buffered:
+            return
+
         # Pass the default value down to the IO buffer for use during buffered reads.
         if isinstance(initializer, int):
             self._context.io.default = initializer
@@ -69,6 +74,9 @@ class Variable:
                 load_region(child.region)
 
     def store(self, initializer=None):
+        if not self.is_buffered:
+            return
+
         # Write all buffered data.
         if initializer is None:
             self.sync()
@@ -105,13 +113,16 @@ class Variable:
                 store_region(child.region, initializer)
 
     def sync(self):
-        self._context.io.sync()
+        if self.is_buffered:
+            self._context.io.sync()
 
     def drop(self):
-        self._context.io.drop()
+        if self.is_buffered:
+            self._context.io.drop()
 
     def flush(self):
-        self._context.io.flush()
+        if self.is_buffered:
+            self._context.io.flush()
 
     def config_get(self, key, default=None):
         for kargs in (self._kargs, self._context.kargs):
