@@ -7,6 +7,7 @@ __all__ = (
     'offset_of',
     'oid_of',
     'ordinal_of',
+    'qualname_of',
     'region_of',
     'size_of',
 )
@@ -57,6 +58,10 @@ def oid_of(spec, index=None):
 #---------------------------------------------------------------------------------------------------
 def ordinal_of(spec, index=None):
     return region_of(spec, index).ordinal
+
+#---------------------------------------------------------------------------------------------------
+def qualname_of(spec, index=None):
+    return _node_from_index(spec, index).qualname
 
 #---------------------------------------------------------------------------------------------------
 # In data words.
