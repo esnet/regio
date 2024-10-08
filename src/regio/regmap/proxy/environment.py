@@ -274,6 +274,16 @@ class ClickEnvironment(Environment):
                 default=False,
             ),
             click.option(
+                '--indirect',
+                help='''
+                Recursively display indirect memory views accessed via protocols. Note that enabling
+                this option will result in registers being modified by the protocol as it performs
+                the underlying indirect memory accesses.
+                ''',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
                 '--abspath',
                 help='''
                 Include all path components when displaying regmap objects. Default behaviour is to

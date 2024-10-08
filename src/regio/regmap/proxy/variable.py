@@ -11,6 +11,7 @@ class Variable:
 
         self._node = node
         self._chain = chain
+        self.is_group = chain.is_group if chain is not None else False
         self._pargs = tuple(pargs)
         self._kargs = dict(kargs)
 
@@ -45,6 +46,26 @@ class Variable:
         # Create the new context for the buffered IO.
         return ctx.copy(buff_io)
 
+    def _iter_nodes(self, node, reg_only=True, iter_fn=lambda _: iter):
+        # Iterator for recursing depth-first through a node's hierarchy.
+        for child in iter_fn(node)(node.children):
+            # Only produce non-register nodes when requested.
+            is_reg = child.region.register is not None
+            if not reg_only or is_reg:
+                yield child
+
+            # Don't recurse through a register's fields unless requested.
+            if reg_only and is_reg:
+                continue
+
+            # Don't recurse through nodes requiring indirect access via protocol.
+            if child.protocol is not None:
+                continue
+
+            # Continue the depth-first iteration on the child node.
+            for gchild in self._iter_nodes(child, reg_only, iter_fn):
+                yield gchild
+
     def load(self, initializer=None):
         if not self.is_buffered:
             return
@@ -59,14 +80,10 @@ class Variable:
         if initializer is not None:
             raise ValueError(f'Unknown initializer {initializer!r}. Must be None or an int.')
 
-        # The variable was created on a singular node, load all registers in it's hierarchy.
-        if not self._chain.is_group:
-            self._load_node(self._node)
-            return
-
-        # The variable was created on a node group, load all registers in the hierarchy of every
-        # node in the group.
-        for node in self._chain:
+        # Load all directly accessible registers in the hierarchy of the singular node or all nodes
+        # in the chain.
+        nodes = self._chain if self.is_group else (self._node,)
+        for node in nodes:
             self._load_node(node)
 
     def _load_node(self, node):
@@ -78,11 +95,10 @@ class Variable:
             load_region(node.region)
             return
 
-        # The node is a container, so load all registers in it's hierarchy.
+        # The node is a container, so load all directly accessible registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
-        for child in node.descendants:
-            if child.region.register is not None:
-                load_region(child.region)
+        for child in self._iter_nodes(node):
+            load_region(child.region)
 
     def store(self, initializer=None):
         if not self.is_buffered:
@@ -98,15 +114,11 @@ class Variable:
         if not isinstance(initializer, int):
             raise ValueError(f'Unknown initializer {initializer!r}. Must be None or an int.')
 
-        # The variable was created on a singular node, store all registers in it's hierarchy.
-        if not self._chain.is_group:
-            self._store_node(self._node, initializer)
-            return
-
-        # The variable was created on a node group, store all registers in the hierarchy of every
-        # node in the group.
-        for node in self._chain:
-            self._store_node(node, initializer)
+        # Store all directly accessible registers in the hierarchy of the singular node or all nodes
+        # in the chain.
+        nodes = self._chain if self.is_group else (self._node,)
+        for node in nodes:
+            self._store_node(node)
 
     def _store_node(self, node, initializer):
         # Perform low-level IO to write all registers.
@@ -117,11 +129,10 @@ class Variable:
             store_region(node.region, initializer)
             return
 
-        # The node is a container, so store all registers in it's hierarchy.
+        # The node is a container, so store all directly accessible registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
-        for child in node.descendants:
-            if child.region.register is not None:
-                store_region(child.region, initializer)
+        for child in self._iter_nodes(node):
+            store_region(child.region, initializer)
 
     def sync(self):
         if self.is_buffered:
@@ -157,10 +168,10 @@ class Formatter:
     def __init__(self, var):
         self.var = var
         self.root = var._node
-        self.is_group = var._chain.is_group
 
         # Capture general display configuration.
         self.verbose = var.config_get('verbose', False)
+        self.indirect = self.verbose or var.config_get('indirect', False)
 
         # Determine the display format for the qualified name of all the nodes.
         self.abspath = var.config_get('abspath', False)
@@ -239,36 +250,42 @@ class Formatter:
         return data
 
     def __str__(self):
-        root = self.root
-        ctx = self.var._context
-        chain = self.var._chain
+        # Define helper function to switch iteration order for register fields.
+        def iter_fn(node):
+            if isinstance(node, register.Node) and not self.lsb_first:
+                return reversed
+            return iter
+
+        col_widths = {}
+        row_data = []
+        def format_node(node, var, is_root):
+            ctx = var._context
+
+            # Format the node.
+            if is_root:
+                col_data = ctx.new_variable(node, None, ...)._format_node(self, True)
+                row_data.append(self.update_widths(col_widths, col_data))
+
+            # Gather formatting data for each child node in the hierarchy.
+            for child in var._iter_nodes(node, False, iter_fn):
+                child_ctx = ctx.select(child, None) if self.indirect else ctx
+                is_indirect = child_ctx is not ctx
+
+                child_var = child_ctx.new_variable(child, None, None if is_indirect else ...)
+                col_data = child_var._format_node(self, False)
+                row_data.append(self.update_widths(col_widths, col_data))
+
+                if is_indirect:
+                    format_node(child, child_var, False)
 
         # Determine the set of nodes to be formatted.
         # - If the variable was created on a node group, iterate over all nodes in the router chain.
         # - If the variable was created on a singular node, use it.
-        nodes = chain if chain.is_group else (root,)
-
-        # Setup an iterator for recursing depth-first through the regmap hierarchy.
-        def iter_nodes(node):
-            iter_fn = reversed if isinstance(node, register.Node) and not self.lsb_first else iter
-            for child in iter_fn(node.children):
-                yield child
-
-                for gchild in iter_nodes(child):
-                    yield gchild
+        nodes = self.var._chain if self.var.is_group else (self.root,)
 
         # Gather formatting data for all nodes in the variable's hierarchy.
-        col_widths = {}
-        row_data = []
         for node in nodes:
-            # Format the node.
-            col_data = ctx.new_variable(node, None, ...)._format_node(self, True)
-            row_data.append(self.update_widths(col_widths, col_data))
-
-            # Gather formatting data for each child node in the hierarchy.
-            for child in iter_nodes(node):
-                col_data = ctx.new_variable(child, None, ...)._format_node(self, False)
-                row_data.append(self.update_widths(col_widths, col_data))
+            format_node(node, self.var, True)
 
         # Sort the row data by path instead of by node ordering the hierarchy.
         if self.path_sort:
@@ -461,13 +478,15 @@ class StructureFormatter:
         else:
             raise TypeError(f'Unknown node type {ntype!r}.')
 
+        is_indirect = self._node.protocol is not None
         region = self._node.region
         start = region.offset.absolute
         end = region.offset.absolute + region.size - 1
 
         return {
             'type': type_,
-            'path': formatter.qualname(self._node, is_root),
+            'path': formatter.qualname(self._node, is_root) +
+                    (' [indirect view]' if is_indirect else ''),
             'size': formatter.size(region.size),
             'offset': formatter.offset_range(start, end),
             'data': {
