@@ -47,6 +47,11 @@ class Node(Base):
         self.members_map = {}
         self.config = config
         self.region = None
+        self._protocol = None
+
+    @property
+    def protocol(self):
+        return self._protocol
 
     def attach(self, parent):
         super().attach(parent)
