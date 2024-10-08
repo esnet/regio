@@ -110,7 +110,7 @@ class Environment:
 
                 # Display the object.
                 if isinstance(obj, proxy.Proxy):
-                    obj = obj(...)
+                    obj = obj()
                 print(obj)
 
     def eval(self, expressions):
