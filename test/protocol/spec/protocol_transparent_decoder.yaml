@@ -1,0 +1,16 @@
+name: protocol_transparent_decoder
+info: Example transparent decoder for checking namepsace promotion of protocol views.
+
+blocks:
+  single_controller: &single_controller
+    !include protocol_single_controller.yaml
+  single_view: &single_view
+    !include protocol_single_view.yaml
+
+interfaces:
+  - name: transparent_controller
+    block: *single_controller
+    address: 0x0000
+    view:
+      name: transparent_view
+      block: *single_view

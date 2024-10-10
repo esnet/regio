@@ -1,0 +1,68 @@
+toplevel:
+  name: protocol_test
+  info: |
+    Example top-level for simulating indirectly accessible registers.
+
+    The indirect registers are accessed by means of a controller instantiated by an interface and a
+    protocol implemented in Python. The protocol manipulates the controller's registers to perform
+    operations on the indirect registers defined by the block or decoder bound to it's view.
+
+  pci_vendor: 0x0123
+  pci_device: 0x4567
+
+  bars:
+    0:
+      name: bar0
+      desc: BAR 0 memory
+      size: 0x40000
+      decoder:
+        name: bar0
+        blocks:
+          single_controller: &single_controller
+            !include protocol_single_controller.yaml
+          single_view: &single_view
+            !include protocol_single_view.yaml
+          nested_controller: &nested_controller
+            !include protocol_nested_controller.yaml
+          bus_controller: &bus_controller
+            !include protocol_bus_controller.yaml
+        decoders:
+          nested_view: &nested_view
+            !include protocol_nested_view.yaml
+          bus_view: &bus_view
+            !include protocol_bus_view.yaml
+          transparent_decoder: &transparent_decoder
+            !include protocol_transparent_decoder.yaml
+        interfaces:
+          - name: single_controller
+            block: *single_controller
+            address: 0x00000
+            width: 16
+            view:
+              name: single_view
+              block: *single_view
+          - name: nested_controller
+            block: *nested_controller
+            address: 0x10000
+            width: 16
+            view:
+              name: nested_view
+              decoder: *nested_view
+              class:
+                args:
+                  slot_width: 12
+          - name: bus_controller
+            block: *bus_controller
+            address: 0x20000
+            width: 16
+            view:
+              name: bus_view
+              decoder: *bus_view
+          - decoder: *transparent_decoder
+            address: 0x30000
+            width: 12
+            suffix: _0
+          - decoder: *transparent_decoder
+            address: 0x31000
+            width: 12
+            suffix: _1

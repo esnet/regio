@@ -1,0 +1,18 @@
+name: protocol_bus_controller
+info: |
+  Example block for simulating a single layer of indirectly accessible registers hidden behind
+  a virtual bus. The bus address is used as the base slot at which all registers within a client
+  view are mapped.
+
+protocol:
+  name: slots
+  source: !include protocol_slots.py
+  class:
+    name: BusControllerProtocol
+
+regs:
+  - default:
+      width: 32
+      access: rw
+  - name: slots
+    count: 6
