@@ -10,13 +10,17 @@ import yaml
 
 #---------------------------------------------------------------------------------------------------
 class MetaData:
-    def __init__(self, node):
+    def __init__(self, node, inc_path=None):
         self.path = node.start_mark.name
         self.line = node.start_mark.line + 1
         self.column = node.start_mark.column
+        self.inc_path = inc_path
 
     def __str__(self):
-        return f'path: {self.path}, line: {self.line}, column: {self.column}'
+        s = f'path: {self.path}, line: {self.line}, column: {self.column}'
+        if self.inc_path is not None:
+            s += f', included from: {self.inc_path}'
+        return s
 
 #---------------------------------------------------------------------------------------------------
 # These types are created to allow attaching extra attributes to parsed data objects. They must
@@ -78,7 +82,7 @@ class Loader(yaml.SafeLoader):
         if entry is None:
             # Create an empty mapping for the node.
             data = CustomDict()
-            data.___metadata___ = MetaData(node)
+            data.___metadata___ = MetaData(node, spath)
 
             # Add the new include file to the cache.
             if cache is not None:
