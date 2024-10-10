@@ -194,10 +194,14 @@ class BufferedIO(IO):
         self.default = None
 
     def start(self):
-        self.llio.start()
+        if not self.started:
+            self.llio.start()
+            super().start()
 
     def stop(self):
-        self.llio.stop()
+        if self.started:
+            self.llio.stop()
+            super().stop()
 
     def read(self, offset, size):
         value = self.buffer.get(offset)

@@ -22,17 +22,28 @@ class Variable:
             self._context = ctx
         else:
             # By value.
-            # If the context is already buffered, pull-out it's low-level IO for the buffering.
-            # TODO: Should be able to use a custom buffer based on array.array(), where the index
-            #       is the register ordinal, adjusted for the first register in the sub-tree (all
-            #       registers in the sub-tree will be in a contiguous ordinal range).
             self.is_buffered = True
-            llio = ctx.io.llio if isinstance(ctx.io, io.BufferedIO) else ctx.io
-            self._context = ctx.copy(io.BufferedIO(llio))
+            self._context = self._new_buffered_context(ctx)
             self.load(initializer)
 
         # Setup a proxy for the variable on the initialized context.
         self.proxy = self._context.new_proxy(node, chain)
+
+    def _new_buffered_context(self, ctx):
+        # Determine the low-level IO accessor to be buffered.
+        # - If the context is unbuffered, then use it's IO directly.
+        # - If the context is already buffered, then pull-out it's low-level IO for the buffering
+        #   (there's no current use case for layering of buffers, since by design, a buffer needs
+        #   some way to perform actual IO for load/store operations).
+        llio = ctx.io.llio if isinstance(ctx.io, io.BufferedIO) else ctx.io
+
+        # Wrap the low-level IO to buffer it's accesses.
+        buff_io = io.BufferedIO(llio)
+        if llio.started:
+            buff_io.start()
+
+        # Create the new context for the buffered IO.
+        return ctx.copy(buff_io)
 
     def load(self, initializer=None):
         if not self.is_buffered:
