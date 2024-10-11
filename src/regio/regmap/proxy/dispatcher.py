@@ -59,7 +59,7 @@ class ForIOSetattr:
         try:
             write = attr.___write___
         except AttributeError:
-            raise ArrtibuteError(f'Attribute {name} is not writeable on {attr.___node___.spec!r}.')
+            raise AttributeError(f'Attribute {name} is not writeable on {attr.___node___.spec!r}.')
         else:
             write(value)
 
@@ -83,7 +83,7 @@ class ForIOSetitem:
         try:
             write = item.___write___
         except AttributeError:
-            raise ArrtibuteError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
+            raise AttributeError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
         else:
             write(value)
 
@@ -95,7 +95,7 @@ class ForIOSetitemGroup:
             try:
                 write = item.___write___
             except AttributeError:
-                raise ArrtibuteError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
+                raise AttributeError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
             else:
                 write(value)
 
