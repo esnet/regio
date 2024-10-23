@@ -273,7 +273,7 @@ def validate_register(reg):
     for fld in fields:
         if not isinstance(fld, dict):
             error(reg, 'Register field must be specified as a mapping')
-            fatal(fld, f'Register field of incorrect type {type(fld)}: {repr(fld)}')
+            fatal(fld, f'Register field of incorrect type {type(fld)}: {fld!r}')
 
     # Verify that the given width is sensible.
     width = reg.get('width')
@@ -306,7 +306,7 @@ def validate_block(blk):
     for reg in blk['regs']:
         if not isinstance(reg, dict):
             error(blk, 'Register must be specified as a mapping')
-            fatal(reg, f'Register of incorrect type {type(reg)}: {repr(reg)}')
+            fatal(reg, f'Register of incorrect type {type(reg)}: {reg!r}')
 
 #---------------------------------------------------------------------------------------------------
 def validate_interface(intf):
@@ -374,7 +374,7 @@ def validate_decoder(dec):
     for intf in dec['interfaces']:
         if not isinstance(intf, dict):
             error(dec, 'Decoder interfaces must be specified as a mapping')
-            fatal(intf, f'Decoder interface of incorrect type {type(intf)}: {repr(intf)}')
+            fatal(intf, f'Decoder interface of incorrect type {type(intf)}: {intf!r}')
 
 #---------------------------------------------------------------------------------------------------
 def validate_bar(bar):
@@ -414,7 +414,7 @@ def validate_toplevel(top):
 
         if not isinstance(bar, dict):
             error(bars, f'BAR {bid} must be specified as a mapping')
-            fatal(bar, f'BAR {bid} of incorrect type {type(bar)}: {repr(bar)}')
+            fatal(bar, f'BAR {bid} of incorrect type {type(bar)}: {bar!r}')
 
 #---------------------------------------------------------------------------------------------------
 def compute_region_padding(regions, padding, min_offset=None, max_offset=None):
