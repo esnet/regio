@@ -12,6 +12,8 @@ from . import parser
 #---------------------------------------------------------------------------------------------------
 ACCESS_MODES = set(('ro', 'rw', 'wo', 'wr_evt', 'rd_evt'))
 
+DEFAULT_DATA_WIDTH = 32 # PCIe data width (in bits)
+
 #---------------------------------------------------------------------------------------------------
 def stderr(msg):
     sys.stderr.write(msg + '\n')
@@ -34,6 +36,10 @@ def error(obj, msg):
 def fatal(obj, msg):
     error(obj, msg)
     sys.exit(1)
+
+#---------------------------------------------------------------------------------------------------
+def is_power_of_2(value):
+    return value > 0 and (value & (value - 1)) == 0
 
 #---------------------------------------------------------------------------------------------------
 def cmp_value(value_a, value_b):
@@ -387,9 +393,19 @@ def validate_block(blk):
         ('regs', list),
     )
     OPTIONAL = (
+        ('data_width', int),
         ('desc', str),
     )
     validate_attrs(blk, REQUIRED, OPTIONAL, (), tag)
+
+    # Validate the given data width.
+    data_width = blk.get('data_width')
+    if data_width is not None:
+        octets, rem = divmod(data_width, 8)
+        if rem != 0:
+            fatal(blk, f'Data width {data_width} is not a multiple of 8 bits')
+        if not is_power_of_2(octets):
+            fatal(blk, f'Data width {data_width} is not a power of 2 multiple of 8 bits')
 
     # Validate the list for specifying the registers.
     for reg in blk['regs']:
@@ -449,6 +465,7 @@ def validate_decoder(dec):
     )
     OPTIONAL = (
         ('blocks', dict),
+        ('data_width', int),
         ('decoders', dict),
         ('info', str),
         ('visible', bool),
@@ -458,6 +475,15 @@ def validate_decoder(dec):
     # Make sure that the decoder has blocks and/or decoders.
     if 'blocks' not in dec and 'decoders' not in dec:
         fatal(dec, f'Missing a "blocks" and/or "decoders" mapping needed by "{tag}"')
+
+    # Validate the given data width.
+    data_width = dec.get('data_width')
+    if data_width is not None:
+        octets, rem = divmod(data_width, 8)
+        if rem != 0:
+            fatal(dec, f'Data width {data_width} is not a multiple of 8 bits')
+        if not is_power_of_2(octets):
+            fatal(dec, f'Data width {data_width} is not a power of 2 multiple of 8 bits')
 
     # Validate the list for specifying the interfaces.
     for intf in dec['interfaces']:
@@ -641,12 +667,17 @@ def elaborate_register(reg, offset, defaults, parent):
     if 'meta' in reg:
         meta = reg['meta']
         if 'pad_until' in meta:
-            if offset > meta['pad_until']:
+            pad_until = meta['pad_until']
+            if offset > pad_until:
                 # Negative padding!
                 fatal(reg, f'Negative padding requested at offset 0x{offset:08x}')
-            elif offset == meta['pad_until']:
+            elif offset == pad_until:
                 # No padding required
                 fatal(reg, f'Padding not required at offset 0x{offset:08x}')
+            elif pad_until % (data_width // 8) != 0:
+                # Alignment error
+                fatal(reg, f'Padding offset 0x{pad_until:08x} is not aligned on a data width '
+                      f'boundary of {data_width} bits')
             else:
                 data_width = 8
                 fld_offset += data_width
@@ -655,7 +686,7 @@ def elaborate_register(reg, offset, defaults, parent):
                     'access':     'none',
                     'data_width': data_width,
                     'width':      data_width,
-                    'count':      meta['pad_until'] - offset,
+                    'count':      pad_until - offset,
                 })
                 parent['synth_reg_cnt'] += 1
     else:
@@ -666,6 +697,11 @@ def elaborate_register(reg, offset, defaults, parent):
         if width is not None and width > data_width:
             data_width = ((width + data_width - 1) // data_width) * data_width
             rnew['data_width'] = data_width
+
+        # Alignment error
+        if offset % (data_width // 8) != 0:
+            fatal(reg, f'Register offset 0x{offset:08x} is not aligned on a data width '
+                  f'boundary of {data_width} bits')
 
         # Elaborate the fields
         if 'fields' in rnew:
@@ -720,8 +756,9 @@ def elaborate_block(blk):
     elaborate_name(blk)
 
     # Set up some default defaults
+    data_width = blk.setdefault('data_width', DEFAULT_DATA_WIDTH)
     reg_defaults = {
-        'data_width': 32,
+        'data_width': data_width,
         'count' : 1,
         'access' : 'ro',
         'init' : 0,
@@ -734,7 +771,7 @@ def elaborate_block(blk):
     if len(regs_in) == 0:
         regs_in.append({
             'meta': {
-                'pad_until': reg_defaults['data_width'] // 8,
+                'pad_until': data_width // 8,
             },
         })
 
@@ -820,6 +857,7 @@ def elaborate_interface(intf, idx, parent):
                 new_pad = pad.copy()
                 new_pad['offset'] += intf['address']
                 intf['padding'].append(new_pad)
+        intf['data_width'] = dec['data_width']
     elif 'block' in intf:
         blk = intf['block']
         new_region = {
@@ -833,6 +871,7 @@ def elaborate_interface(intf, idx, parent):
         elaborate_name(new_region)
         check_namespace(new_region)
         intf['regions'].append(new_region)
+        intf['data_width'] = blk['data_width']
 
     # Make sure every interface has a name, autogenerate if necessary
     # Do this after evaluating the interfaces so regions don't pick up an autogen name
@@ -874,13 +913,26 @@ def elaborate_decoder(dec, caches):
     dec['regions'] = []
     dec['padding'] = []
     dec['namespace'] = {}
+    data_width = dec.get('data_width')
     if 'interfaces' in dec:
         for idx, intf in enumerate(dec['interfaces']):
             elaborate_interface(intf, idx, dec)
 
+            intf_data_width = intf['data_width']
+            if data_width is None:
+                data_width = intf_data_width # Inherit from the first interface's target.
+            elif intf_data_width != data_width:
+                error(intf, f'Data width mismatch. Decoder expects {data_width} bits, but '
+                      f'interface has {intf_data_width} bits')
+                fatal(dec, 'All decoder interfaces must have the same data width')
+
             dec['regions'].extend(intf['regions'])
             dec['padding'].extend(intf['padding'])
     del dec['namespace']
+
+    if data_width is None:
+        data_width = DEFAULT_DATA_WIDTH
+    dec['data_width'] = data_width
 
     # Compute padding required before and between interfaces
     decoder_padding, decoder_size = compute_region_padding(dec['regions'], dec['padding'], 0, None)
@@ -901,6 +953,7 @@ def elaborate_bar(bar, caches):
     bar_padding, bar_size = compute_region_padding(dec['regions'], dec['padding'], 0, bar['size'])
     bar['padding'] = dec['padding'] + bar_padding
     bar['size'] = bar_size
+    bar['data_width'] = dec['data_width']
 
     # Fill in the size in pages
     PAGE_SIZE = 4096

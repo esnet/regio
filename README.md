@@ -457,6 +457,7 @@ A decoder consists of the following attributes
   * when "true", the decoder will remain in the register map hierarchy
     * all interfaces under a decoder will remain as is in the register map hierarchy, making the decoder non-transparent
   * primarily used by `regio-generate` when defining the register map overlay structures
+* data_width: specifies the bit width of a data word (defaults to the width of the interfaces, which must all be the same)
 * blocks: instances of blocks referenced in other sections
 * decoders: instances of child decoders referenced in other sections
 * interfaces: address ranges that map to other blocks or child decoders
@@ -471,6 +472,11 @@ A decoder consists of the following attributes
 
 Block level
 -----------
+A block consists of the following attributes
+* name: the name of the block
+* info: documentation string to describe the block's function
+* data_width: specifies the bit width of a data word (defaults to 32 bits)
+* regs: list of registers implemented by the block
 
 A register consists of the following attributes
 * name: the name of the register
