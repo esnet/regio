@@ -100,6 +100,9 @@ class Region:
 
         if not reset:
             self._align_to_outer(data_width)
+        elif data_width is not None:
+            self.data_width = data_width
+
         current = self.pause(reset)
         self.info.offset = self.active.current if reset else current
 

@@ -70,6 +70,13 @@ class Node(tree.Node):
         #             when assigning object IDs and ordinals to give the appearance of continuity.
         indirect = self.config.protocol is not None
 
+        # The address space is embedded into another, so apply the base offset and alignment to the
+        # outer region of the parent address space.
+        if region.parent is not None:
+            if self.config.offset > 0:
+                region.goto(self.config.offset)
+            region.align(self.config.align)
+
         # Mark the inner region's beginning and change the data word width. This may result in a
         # re-alignment of the outer region to a joint word boundary. This ensures that the outer
         # region ends on a boundary of it's own, while the inner region starts on a boundary that
@@ -78,12 +85,12 @@ class Node(tree.Node):
         # - When access is indirect, counting is reset to ensure the inner region starts at 0.
         region.begin(indirect, self.config.data_width)
 
-        # Set the base offset in the inner region.
-        if self.config.offset > 0:
-            region.goto(self.config.offset)
-
-        # Make sure the offset is properly aligned in the inner region.
-        region.align(self.config.align)
+        # The address space is standalone, so apply the base offset and alignment to it's inner
+        # region.
+        if region.parent is None:
+            if self.config.offset > 0:
+                region.goto(self.config.offset)
+            region.align(self.config.align)
 
         # Add the address space members.
         for node in self.children:
