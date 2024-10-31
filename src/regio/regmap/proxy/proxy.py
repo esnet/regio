@@ -79,15 +79,12 @@ def for_io(spec, io, proxy_info, *pargs, **kargs):
 #---------------------------------------------------------------------------------------------------
 class ForStructureIOByPathName(Proxy, dispatcher.ForStructureIO, router.ByPathName): ...
 class ForArrayIOByPathIndex(Proxy, dispatcher.ForArrayIO, router.ByPathIndex): ...
-class ForRegisterIOByPathName(Proxy, dispatcher.ForRegisterIO, router.ByPathName): ...
-class ForFieldIOByPathName(Proxy, dispatcher.ForFieldIO, router.ByPathName): ...
+class ForNumericIOByPathName(Proxy, dispatcher.ForNumericIO, router.ByPathName): ...
 
 class ForStructureIOByPathNameGroup(
         Proxy, dispatcher.ForStructureIOGroup, router.ByPathNameGroup): ...
 class ForArrayIOByPathIndexGroup(Proxy, dispatcher.ForArrayIOGroup, router.ByPathIndexGroup): ...
-class ForRegisterIOByPathNameGroup(
-        Proxy, dispatcher.ForRegisterIOGroup, router.ByPathNameGroup): ...
-class ForFieldIOByPathNameGroup(Proxy, dispatcher.ForFieldIOGroup, router.ByPathNameGroup): ...
+class ForNumericIOByPathNameGroup(Proxy, dispatcher.ForNumericIOGroup, router.ByPathNameGroup): ...
 
 FOR_IO_BY_PATH_PROXY_INFO = (
     ProxyInfo(
@@ -103,14 +100,14 @@ FOR_IO_BY_PATH_PROXY_INFO = (
         (array.Node,),
     ),
     ProxyInfo(
-        ForRegisterIOByPathName,
-        ForRegisterIOByPathNameGroup,
+        ForNumericIOByPathName,
+        ForNumericIOByPathNameGroup,
         variable.RegisterVariable,
         (register.Node,),
     ),
     ProxyInfo(
-        ForFieldIOByPathName,
-        ForFieldIOByPathNameGroup,
+        ForNumericIOByPathName,
+        ForNumericIOByPathNameGroup,
         variable.FieldVariable,
         (field.Node,),
     ),

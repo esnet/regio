@@ -16,6 +16,7 @@ class RegionInfo:
         self.oid = ()
         self.ordinal = None
         self.register = None
+        self.pos = None
 
 #---------------------------------------------------------------------------------------------------
 class Region:

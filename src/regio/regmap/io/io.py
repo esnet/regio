@@ -16,6 +16,12 @@ class Endian(enum.Enum):
         return self
 
 #---------------------------------------------------------------------------------------------------
+class Transaction:
+    def __init__(self, region, value=None):
+        self.region = region
+        self.value = value
+
+#---------------------------------------------------------------------------------------------------
 class IO:
     def __init__(self, *pargs, **kargs):
         super().__init__(*pargs, **kargs)
@@ -51,15 +57,20 @@ class IO:
         value |= set_mask
         self.write(offset, size, value)
 
-    def read_region(self, region):
-        return (self.read(region.offset.absolute, region.size) >> region.shift) & region.mask
+    def transact(self, txn):
+        region = txn.region
+        value = txn.value
 
-    def write_region(self, region, value):
-        self.write(region.offset.absolute, region.size, (value & region.mask) << region.shift)
-
-    def update_region(self, region, value):
-        mask = region.mask << region.shift
-        self.update(region.offset.absolute, region.size, ~mask, (value << region.shift) & mask)
+        if value is None:
+            value = self.read(region.offset.absolute, region.size)
+            txn.value = (value >> region.shift) & region.mask
+        elif region.pos is not None:
+            mask = region.mask << region.shift
+            value = (value << region.shift) & mask
+            self.update(region.offset.absolute, region.size, ~mask, value)
+        else:
+            value = (value & region.mask) << region.shift
+            self.write(region.offset.absolute, region.size, value)
 
 #---------------------------------------------------------------------------------------------------
 class IOBuffer(dict):

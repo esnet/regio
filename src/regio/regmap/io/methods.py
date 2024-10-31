@@ -9,10 +9,11 @@ __all__ = (
     'FileStreamIOForSpec',
     'ListIO',
     'ListIOForSpec',
+    'Transaction',
     'ZeroIO',
 )
 
-from .io import DictIO, ListIO, ZeroIO
+from .io import DictIO, ListIO, Transaction, ZeroIO
 from .mmap import DevMmapIO, FileMmapIO
 from .stream import FileStreamIO
 
