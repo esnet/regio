@@ -63,3 +63,6 @@ class FileStreamIO(StreamIO):
         # Create an unbuffered binary file object for raw IO.
         # https://docs.python.org/3/library/io.html
         return self.path.open('r+b', 0)
+
+class FileStreamProtocol(io.WrappedIOProtocol):
+    WRAPPED_IO = FileStreamIO

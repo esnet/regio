@@ -216,6 +216,9 @@ else:
 #---------------------------------------------------------------------------------------------------
 class DevMmapIO(MmapDirectIO): ...
 
+class DevMmapProtocol(io.WrappedIOProtocol):
+    WRAPPED_IO = DevMmapIO
+
 #---------------------------------------------------------------------------------------------------
 class FileMmapIO(MmapDirectIO):
     def __init__(self, path, file_size, *pargs, **kargs):
@@ -232,3 +235,6 @@ class FileMmapIO(MmapDirectIO):
 
         # Map the file into the virtual address space.
         super().start()
+
+class FileMmapProtocol(io.WrappedIOProtocol):
+    WRAPPED_IO = FileMmapIO
