@@ -1,0 +1,44 @@
+name: i2c_qsfp_upper_flat
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  page_00: &page_00
+    !include i2c_qsfp_upper_00.yaml
+  page_01: &page_01
+    !include i2c_qsfp_upper_01.yaml
+  page_02: &page_02
+    !include i2c_qsfp_upper_02.yaml
+  page_03: &page_03
+    !include i2c_qsfp_upper_03.yaml
+  page_20: &page_20
+    !include i2c_qsfp_upper_20.yaml
+  page_21: &page_21
+    !include i2c_qsfp_upper_21.yaml
+
+interfaces:
+  - name: page_00
+    block: *page_00
+    address: 0x0080
+    width: 7
+  - name: page_01
+    block: *page_01
+    address: 0x0180
+    width: 7
+  - name: page_02
+    block: *page_02
+    address: 0x0280
+    width: 7
+  - name: page_03
+    block: *page_03
+    address: 0x0380
+    width: 7
+  - name: page_20
+    block: *page_20
+    address: 0x2080
+    width: 7
+  - name: page_21
+    block: *page_21
+    address: 0x2180
+    width: 7

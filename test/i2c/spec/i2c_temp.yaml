@@ -1,0 +1,11 @@
+name: i2c_temp
+data_width: 8
+info: tbd
+regs:
+  - default:
+      access: rw
+  - name: adc
+    access: ro
+  - name: config
+  - name: high
+  - name: low

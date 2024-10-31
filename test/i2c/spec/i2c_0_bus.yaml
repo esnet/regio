@@ -1,0 +1,36 @@
+name: i2c_0_bus
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  client: &client
+    !include i2c_client.yaml
+  mux: &mux
+    !include i2c_mux.yaml
+  temp: &temp
+    !include i2c_temp.yaml
+
+decoders:
+  mux_0: &mux_0
+    !include i2c_0_mux_0.yaml
+
+interfaces:
+  - name: client_48
+    block: *client
+    address: 0x48
+    view:
+      name: temp_0
+      block: *temp
+  - name: client_49
+    block: *client
+    address: 0x49
+    view:
+      name: temp_1
+      block: *temp
+  - name: client_70
+    block: *mux
+    address: 0x70
+    view:
+      name: mux_0
+      decoder: *mux_0

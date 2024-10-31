@@ -1,0 +1,15 @@
+name: i2c_qsfp_lower
+data_width: 8
+info: tdb
+
+protocol:
+  name: i2c_qsfp
+  source: !include i2c_qsfp_protocol.py
+  class:
+    name: I2cQsfpControllerProtocol
+
+regs:
+  - default:
+      access: rw
+  - name: bytes
+    count: 128

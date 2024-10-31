@@ -1,0 +1,28 @@
+toplevel:
+  name: i2c_test
+  info: tbd
+
+  pci_vendor: 0x0123
+  pci_device: 0x4567
+
+  bars:
+    0:
+      name: bar0
+      desc: BAR 0 memory
+      size: 0x1000
+      decoder:
+        name: bar0
+        blocks:
+          controller: &controller
+            !include i2c_controller.yaml
+        decoders:
+          bus_0: &bus_0
+            !include i2c_0_bus.yaml
+        interfaces:
+          - name: i2c_0
+            block: *controller
+            address: 0x0000
+            width: 12
+            view:
+              name: bus_0
+              decoder: *bus_0

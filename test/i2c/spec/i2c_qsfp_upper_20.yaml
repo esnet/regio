@@ -1,0 +1,9 @@
+name: i2c_qsfp_upper_20
+data_width: 8
+info: tdb
+
+regs:
+  - default:
+      access: rw
+  - name: bytes
+    count: 128

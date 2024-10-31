@@ -1,0 +1,17 @@
+name: i2c_controller
+info: Example block for simulating an I2C bus controller.
+
+protocol:
+  name: i2c
+  source: !include i2c_protocol.py
+  class:
+    name: I2cControllerProtocol
+
+regs:
+  - default:
+      width: 32
+      access: rw
+  - name: command
+  - name: status
+  - name: addr
+  - name: data

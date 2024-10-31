@@ -1,0 +1,18 @@
+name: i2c_0_mux_0_channel_0_bus
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  client: &client
+    !include i2c_client.yaml
+  eeprom: &eeprom
+    !include i2c_eeprom.yaml
+
+interfaces:
+  - name: client_50
+    block: *client
+    address: 0x50
+    view:
+      name: eeprom
+      block: *eeprom
