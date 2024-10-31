@@ -92,13 +92,15 @@ class Variable:
 
         # The node is itself a register.
         if node.region.register is not None:
-            load_region(node.region)
+            if node.config.access.is_readable:
+                load_region(node.region)
             return
 
         # The node is a container, so load all directly accessible registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
         for child in self._iter_nodes(node):
-            load_region(child.region)
+            if child.config.access.is_readable:
+                load_region(child.region)
 
     def store(self, initializer=None):
         if not self.is_buffered:
@@ -126,13 +128,15 @@ class Variable:
 
         # The node is itself a register.
         if node.region.register is not None:
-            store_region(node.region, initializer)
+            if node.config.access.is_writeable:
+                store_region(node.region, initializer)
             return
 
         # The node is a container, so store all directly accessible registers in it's hierarchy.
         # TODO: Don't walk the whole sub-tree. No need to walk past a register node.
         for child in self._iter_nodes(node):
-            store_region(child.region, initializer)
+            if child.config.access.is_writeable:
+                store_region(child.region, initializer)
 
     def sync(self):
         if self.is_buffered:
