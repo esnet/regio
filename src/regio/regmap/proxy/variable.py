@@ -1,6 +1,8 @@
 #---------------------------------------------------------------------------------------------------
 __all__ = ()
 
+import math
+
 from ..io import io
 from ..spec import address, array, register, structure, union
 
@@ -184,11 +186,9 @@ class Formatter:
         # Sort lexicographically or leave in the order defined in the regmap specification.
         self.path_sort = self.var.config_get('path_sort', False)
 
-        # Determine the maximum number of nibbles for consistent offset display.
-        region = var._node.region
-        self.offset_units = 'Bytes' # TODO: Get from low-level IO.
-        self.offset_scale = region.data_width // 8 # TODO: Get from low-level IO.
-        self.offset_nibbles = ((region.size * self.offset_scale).bit_length() + 4 - 1) // 4
+        # Setup the display units for offsets.
+        self.offset_units = 'Bytes' # TODO: Provide option for alternatives (i.e. in words).
+        self.units_width = 8 # TODO: Get from low-level IO.
 
         # Determine the formatting for values.
         self.ignore_access = var.config_get('ignore_access', False)
@@ -213,16 +213,27 @@ class Formatter:
     def qualname(self, node, is_root=True):
         return self.abs_qualname(node) if self.abspath else self.rel_qualname(node, is_root)
 
-    def size(self, value):
-        value *= self.offset_scale
+    def offset_scale(self, region):
+        return (region.data_width + self.units_width - 1) // self.units_width
+
+    def size(self, region):
+        value = region.size * self.offset_scale(region)
         return f'{value:,}'
 
-    def offset(self, value):
-        value *= self.offset_scale
-        return f'0x{value:0{self.offset_nibbles}x}'
+    def offset(self, region, value=None, addend=0):
+        scale = self.offset_scale(region)
+        nibbles = (math.ceil(math.log2(region.root.size * scale)) + 4 - 1) // 4
 
-    def offset_range(self, start, end):
-        return self.offset(start) + ' - ' + self.offset(end)
+        if value is None:
+            value = region.offset.absolute
+        value = value * scale + addend
+
+        return f'0x{value:0{nibbles}x}'
+
+    def offset_range(self, region):
+        start = self.offset(region)
+        end = self.offset(region, region.offset.absolute + region.size, -1)
+        return start + ' - ' + end
 
     def value_hex(self, value, region):
         if self.with_hex_grouping:
@@ -484,15 +495,13 @@ class StructureFormatter:
 
         is_indirect = self._node.protocol is not None
         region = self._node.region
-        start = region.offset.absolute
-        end = region.offset.absolute + region.size - 1
 
         return {
             'type': type_,
             'path': formatter.qualname(self._node, is_root) +
                     (' [indirect view]' if is_indirect else ''),
-            'size': formatter.size(region.size),
-            'offset': formatter.offset_range(start, end),
+            'size': formatter.size(region),
+            'offset': formatter.offset_range(region),
             'data': {
                 'oid': region.oid,
                 'ordinal': region.ordinal,
@@ -509,16 +518,14 @@ class StructureFormatter:
 class ArrayFormatter:
     def _format_node(self, formatter, is_root=True):
         region = self._node.region
-        start = region.offset.absolute
-        end = region.offset.absolute + region.size - 1
         qualname = formatter.qualname(self._node, is_root)
         subscripts = ''.join(f'[:{f}]' for f in self._node.indexer.fields)
 
         return {
             'type': 'Array',
             'path': f'{qualname}{subscripts}',
-            'size': formatter.size(region.size),
-            'offset': formatter.offset_range(start, end),
+            'size': formatter.size(region),
+            'offset': formatter.offset_range(region),
             'data': {
                 'oid': region.oid,
                 'ordinal': region.ordinal,
@@ -542,8 +549,8 @@ class RegisterFormatter:
             'type': 'Register',
             'access': self._node.config.access.name,
             'path': formatter.qualname(self._node, is_root),
-            'size': formatter.size(region.size),
-            'offset': formatter.offset(region.offset.absolute),
+            'size': formatter.size(region),
+            'offset': formatter.offset(region),
             'value_hex': formatter.value_hex(value, region),
             'data': {
                 'oid': region.oid,

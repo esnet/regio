@@ -10,6 +10,7 @@ from ..types import counter
 # TODO: make a dataclass?
 class RegionInfo:
     def __init__(self):
+        self.root = None
         self.offset = None
         self.data_width = None
         self.size = 0
@@ -30,10 +31,12 @@ class Region:
             self.outer_data_width = domain.data_width
             self.active = domain.words
             self.info.oid = (len(domain.regions),)
+            self.info.root = self.info
         else:
             self.outer_data_width = parent.data_width
             self.active = parent.active
             self.info.oid = parent.info.oid + (len(parent.regions),)
+            self.info.root = parent.info.root
         self.data_width = self.outer_data_width
 
         self.info.ordinal = domain.ordinal
@@ -100,8 +103,10 @@ class Region:
 
         if not reset:
             self._align_to_outer(data_width)
-        elif data_width is not None:
-            self.data_width = data_width
+        else:
+            self.info.root = self.info
+            if data_width is not None:
+                self.data_width = data_width
 
         current = self.pause(reset)
         self.info.offset = self.active.current if reset else current
