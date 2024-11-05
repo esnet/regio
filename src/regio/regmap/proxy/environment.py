@@ -110,7 +110,7 @@ class Environment:
 
                 # Display the object.
                 if isinstance(obj, proxy.Proxy):
-                    obj = obj(...)
+                    obj = obj()
                 print(obj)
 
     def eval(self, expressions):
@@ -270,6 +270,16 @@ class ClickEnvironment(Environment):
             click.option(
                 '--verbose',
                 help='Display using verbose configuration.',
+                is_flag=True,
+                default=False,
+            ),
+            click.option(
+                '--indirect',
+                help='''
+                Recursively display indirect memory views accessed via protocols. Note that enabling
+                this option will result in registers being modified by the protocol as it performs
+                the underlying indirect memory accesses.
+                ''',
                 is_flag=True,
                 default=False,
             ),

@@ -1,0 +1,26 @@
+name: protocol_bus_view
+visible: true
+data_width: 8
+info: |
+  Example decoder for simulating a single layer of indirectly accessible registers hidden behind
+  a virtual bus. The address of each interface is used as the bus address.
+
+blocks:
+  bus_client: &bus_client
+    !include protocol_bus_client.yaml
+  single_view: &single_view
+    !include protocol_single_view.yaml
+
+interfaces:
+  - name: client_0
+    block: *bus_client
+    address: 0x00
+    view:
+      name: view_0
+      block: *single_view
+  - name: client_1
+    block: *bus_client
+    address: 0x03
+    view:
+      name: view_1
+      block: *single_view

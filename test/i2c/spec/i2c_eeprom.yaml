@@ -1,0 +1,8 @@
+name: i2c_eeprom
+data_width: 8
+info: tbd
+regs:
+  - default:
+      access: rw
+  - name: bytes
+    count: 256

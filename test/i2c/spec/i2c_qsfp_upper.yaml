@@ -1,0 +1,58 @@
+name: i2c_qsfp_upper
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  client: &client
+    !include i2c_qsfp_client.yaml
+  page_00: &page_00
+    !include i2c_qsfp_upper_00.yaml
+  page_01: &page_01
+    !include i2c_qsfp_upper_01.yaml
+  page_02: &page_02
+    !include i2c_qsfp_upper_02.yaml
+  page_03: &page_03
+    !include i2c_qsfp_upper_03.yaml
+  page_20: &page_20
+    !include i2c_qsfp_upper_20.yaml
+  page_21: &page_21
+    !include i2c_qsfp_upper_21.yaml
+
+interfaces:
+  - name: client_00
+    block: *client
+    address: 0x00
+    view:
+      name: page_00
+      block: *page_00
+  - name: client_01
+    block: *client
+    address: 0x01
+    view:
+      name: page_01
+      block: *page_01
+  - name: client_02
+    block: *client
+    address: 0x02
+    view:
+      name: page_02
+      block: *page_02
+  - name: client_03
+    block: *client
+    address: 0x03
+    view:
+      name: page_03
+      block: *page_03
+  - name: client_20
+    block: *client
+    address: 0x20
+    view:
+      name: page_20
+      block: *page_20
+  - name: client_21
+    block: *client
+    address: 0x21
+    view:
+      name: page_21
+      block: *page_21

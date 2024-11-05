@@ -1,0 +1,13 @@
+name: protocol_single_controller
+info: Example block for simulating a single layer of indirectly accessible registers.
+
+protocol:
+  name: slots
+  source: !include protocol_slots.py
+
+regs:
+  - default:
+      width: 32
+      access: rw
+  - name: slots
+    count: 3

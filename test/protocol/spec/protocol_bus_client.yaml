@@ -1,0 +1,16 @@
+name: protocol_bus_client
+data_width: 8
+info: |
+  Example block for simulating a single layer of indirectly accessible registers hidden behind
+  a virtual bus. The registers within the client view are wrapped in a bus transaction object
+  and then passed on to the controller in the top-level address space.
+
+protocol:
+  name: slots
+  source: !include protocol_slots.py
+  class:
+    name: BusClientProtocol
+
+regs:
+  - name: transact
+    access: wo

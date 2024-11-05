@@ -2,6 +2,7 @@
 __all__ = ()
 
 from . import dispatcher, router, variable
+from ..io import io
 from ..spec import address, array, field, meta, register, structure, union
 
 #---------------------------------------------------------------------------------------------------
@@ -38,7 +39,10 @@ class Context:
     def copy(self, *pargs, **kargs):
         return type(self)(*pargs, self.proxy_info, tuple(self.pargs), dict(self.kargs), **kargs)
 
-    def new_proxy(self, node, chain, *pargs, **kargs):
+    def select(self, node, chain):
+        return self
+
+    def _new_proxy(self, node, chain, *pargs, **kargs):
         ntype = type(node)
         for info in self.proxy_info:
             if ntype not in info.node_types:
@@ -50,6 +54,10 @@ class Context:
 
         raise TypeError(f'Unable to match {node!r} to a proxy.')
 
+    def new_proxy(self, node, chain, *pargs, **kargs):
+        ctx = self.select(node, chain)
+        return ctx._new_proxy(node, chain, *pargs, **kargs)
+
 #---------------------------------------------------------------------------------------------------
 class IOContext(Context):
     def __init__(self, io, *pargs, **kargs):
@@ -58,6 +66,54 @@ class IOContext(Context):
 
     def copy(self, io=None, *pargs, **kargs):
         return super().copy(*pargs, self.io if io is None else io, **kargs)
+
+    def select(self, node, chain):
+        # This method determines whether the current context can be used to access the given node or
+        # whether a new context using a different IO accessor is needed (and creates it if so). The
+        # idea is to provide a hook to detect the change between IO domains (via a node that defines
+        # a protocol), swap out the current IO accessor with a new one that redirects through the
+        # protocol and then carry on as if nothing happened. All of the child nodes that fall within
+        # the indirect view will inherit the new redirected IO transparently.
+
+        # IO access can only be performed on singular nodes.
+        if chain is not None and chain.is_group:
+            return self
+
+        # The node does not introduce a protocol (i.e. not a new indirect view), so re-use the
+        # current context's IO. If the node is contained within an indirect view, the current IO
+        # will already be bound to the appropriate protocol.
+        proto = node.protocol
+        if proto is None:
+            return self
+
+        # The node introduces a protocol, so all subsequent child nodes are accessed through an
+        # indirect memory view.
+
+        # Check if the current context is setup for indirect access via the required protocol (this
+        # occurs when creating a new proxy or variable for a node).
+        llio = self.io.llio if isinstance(self.io, io.BufferedIO) else self.io
+        if isinstance(llio, io.ProtocolIO) and llio.protocol is proto:
+            return self
+
+        # Create a proxy for the node's parent to give the protocol instance access to the registers
+        # needed to perform the IO accesses through the indirect memory view. Make sure the new
+        # proxy is created on the low-level IO to handle cases when the context is buffered.
+        if node.parent is None:
+            raise AssertionError('Attempting IO via protocol on root node.')
+        proxy = self.copy(llio)._new_proxy(node.parent, None)
+
+        # Allow test hooks to override the protocol for faking the underlying accesses.
+        override = self.kargs.get('protocol_override')
+        if override is not None:
+            proto = override(node.spec)
+
+        # Create a new IO accessor that redirects through the protocol.
+        proto_io = io.ProtocolIO(proto, llio, proxy)
+        if self.io.started:
+            proto_io.start()
+
+        # Create a new IO context for proxy objects contained within the indirect memory view.
+        return self.copy(proto_io)
 
     def new_variable(self, node, chain, *pargs, **kargs):
         ntype = type(node)
@@ -79,15 +135,12 @@ def for_io(spec, io, proxy_info, *pargs, **kargs):
 #---------------------------------------------------------------------------------------------------
 class ForStructureIOByPathName(Proxy, dispatcher.ForStructureIO, router.ByPathName): ...
 class ForArrayIOByPathIndex(Proxy, dispatcher.ForArrayIO, router.ByPathIndex): ...
-class ForRegisterIOByPathName(Proxy, dispatcher.ForRegisterIO, router.ByPathName): ...
-class ForFieldIOByPathName(Proxy, dispatcher.ForFieldIO, router.ByPathName): ...
+class ForNumericIOByPathName(Proxy, dispatcher.ForNumericIO, router.ByPathName): ...
 
 class ForStructureIOByPathNameGroup(
         Proxy, dispatcher.ForStructureIOGroup, router.ByPathNameGroup): ...
 class ForArrayIOByPathIndexGroup(Proxy, dispatcher.ForArrayIOGroup, router.ByPathIndexGroup): ...
-class ForRegisterIOByPathNameGroup(
-        Proxy, dispatcher.ForRegisterIOGroup, router.ByPathNameGroup): ...
-class ForFieldIOByPathNameGroup(Proxy, dispatcher.ForFieldIOGroup, router.ByPathNameGroup): ...
+class ForNumericIOByPathNameGroup(Proxy, dispatcher.ForNumericIOGroup, router.ByPathNameGroup): ...
 
 FOR_IO_BY_PATH_PROXY_INFO = (
     ProxyInfo(
@@ -103,14 +156,14 @@ FOR_IO_BY_PATH_PROXY_INFO = (
         (array.Node,),
     ),
     ProxyInfo(
-        ForRegisterIOByPathName,
-        ForRegisterIOByPathNameGroup,
+        ForNumericIOByPathName,
+        ForNumericIOByPathNameGroup,
         variable.RegisterVariable,
         (register.Node,),
     ),
     ProxyInfo(
-        ForFieldIOByPathName,
-        ForFieldIOByPathNameGroup,
+        ForNumericIOByPathName,
+        ForNumericIOByPathNameGroup,
         variable.FieldVariable,
         (field.Node,),
     ),

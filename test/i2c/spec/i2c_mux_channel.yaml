@@ -1,0 +1,13 @@
+name: i2c_mux_channel
+data_width: 8
+info: tbd
+
+protocol:
+  name: i2c
+  source: !include i2c_protocol.py
+  class:
+    name: I2cMuxChannelProtocol
+
+regs:
+  - name: transact
+    access: wo

@@ -1,0 +1,36 @@
+name: i2c_0_mux_0
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  channel: &channel
+    !include i2c_mux_channel.yaml
+
+decoders:
+  bus_0: &bus_0
+    !include i2c_0_mux_0_channel_0_bus.yaml
+  bus_2: &bus_2
+    !include i2c_0_mux_0_channel_2_bus.yaml
+  bus_3: &bus_3
+    !include i2c_0_mux_0_channel_3_bus.yaml
+
+interfaces:
+  - name: channel_0
+    block: *channel
+    address: 0
+    view:
+      name: bus_0
+      decoder: *bus_0
+  - name: channel_2
+    block: *channel
+    address: 2
+    view:
+      name: bus_2
+      decoder: *bus_2
+  - name: channel_3
+    block: *channel
+    address: 3
+    view:
+      name: bus_3
+      decoder: *bus_3

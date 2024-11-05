@@ -1,0 +1,13 @@
+name: i2c_qsfp_client
+data_width: 8
+info: tbd
+
+protocol:
+  name: i2c_qsfp
+  source: !include i2c_qsfp_protocol.py
+  class:
+    name: I2cQsfpClientProtocol
+
+regs:
+  - name: transact
+    access: wo

@@ -5,6 +5,8 @@ import collections.abc
 import itertools
 import sys
 
+from ..io import io
+
 #---------------------------------------------------------------------------------------------------
 def zip_repeat(proxy, value):
     nproxies = len(proxy)
@@ -57,7 +59,7 @@ class ForIOSetattr:
         try:
             write = attr.___write___
         except AttributeError:
-            raise ArrtibuteError(f'Attribute {name} is not writeable on {attr.___node___.spec!r}.')
+            raise AttributeError(f'Attribute {name} is not writeable on {attr.___node___.spec!r}.')
         else:
             write(value)
 
@@ -81,7 +83,7 @@ class ForIOSetitem:
         try:
             write = item.___write___
         except AttributeError:
-            raise ArrtibuteError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
+            raise AttributeError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
         else:
             write(value)
 
@@ -93,7 +95,7 @@ class ForIOSetitemGroup:
             try:
                 write = item.___write___
             except AttributeError:
-                raise ArrtibuteError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
+                raise AttributeError(f'Item {key!r} is not writeable on {item.___node___.spec!r}.')
             else:
                 write(value)
 
@@ -570,20 +572,15 @@ class ForArrayIOGroup(ForIOGroup, ForIOSetitemGroup, ForIOFormattingGroup): ...
 #---------------------------------------------------------------------------------------------------
 class ForNumericIO(ForIO, ForIOSetattr, ForNumericIOOperators):
     def ___read___(self):
-        return self.___context___.io.read_region(self.___node___.region)
+        txn = io.Transaction(self.___node___.region)
+        self.___context___.io.transact(txn)
+        return txn.value
+
+    def ___write___(self, txn):
+        if not isinstance(txn, io.Transaction):
+            txn = io.Transaction(self.___node___.region, txn)
+        else:
+            txn.region = self.___node___.region
+        self.___context___.io.transact(txn)
 
 class ForNumericIOGroup(ForIOGroup, ForIOSetattrGroup, ForNumericIOOperatorsGroup): ...
-
-#---------------------------------------------------------------------------------------------------
-class ForRegisterIO(ForNumericIO):
-    def ___write___(self, value):
-        self.___context___.io.write_region(self.___node___.region, value)
-
-class ForRegisterIOGroup(ForNumericIOGroup): ...
-
-#---------------------------------------------------------------------------------------------------
-class ForFieldIO(ForNumericIO):
-    def ___write___(self, value):
-        self.___context___.io.update_region(self.___node___.region, value)
-
-class ForFieldIOGroup(ForNumericIOGroup): ...

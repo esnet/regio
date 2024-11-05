@@ -147,6 +147,14 @@ class SubClass(Descriptor):
         super().__init__(cls, *pargs, **kargs)
 
 #---------------------------------------------------------------------------------------------------
+class ClassInstance(Descriptor):
+    CHECKERS = ()
+
+    def __init__(self, cls, *pargs, **kargs):
+        self.CHECKERS += (TypeChecker(cls, type(None)),)
+        super().__init__(None, *pargs, **kargs)
+
+#---------------------------------------------------------------------------------------------------
 class EnumFromStr(Descriptor):
     CHECKERS = (
         TypeChecker(str),

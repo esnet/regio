@@ -5,7 +5,6 @@ import os
 import pathlib
 
 from . import io
-from ..spec import info
 
 #---------------------------------------------------------------------------------------------------
 class StreamIO(io.IO):
@@ -65,8 +64,5 @@ class FileStreamIO(StreamIO):
         # https://docs.python.org/3/library/io.html
         return self.path.open('r+b', 0)
 
-#---------------------------------------------------------------------------------------------------
-class FileStreamIOForSpec(FileStreamIO):
-    def __init__(self, spec, path, *pargs, **kargs):
-        region = info.region_of(spec)
-        super().__init__(path, region.octets, region.data_width, *pargs, **kargs)
+class FileStreamProtocol(io.WrappedIOProtocol):
+    WRAPPED_IO = FileStreamIO

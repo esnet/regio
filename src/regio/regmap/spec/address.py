@@ -2,17 +2,35 @@
 __all__ = ()
 
 from . import counting, meta, tree
+from ..io import io
 from ..types import config
+
+#---------------------------------------------------------------------------------------------------
+# Create a dummy type to allow validating the sub-structure used for protocol configuration data.
+# Refer to https://docs.python.org/3/reference/datamodel.html#customizing-instance-and-subclass-checks
+class _ProtocolConfig:
+    def __repr__(self):
+        return f"<class 'tuple[{io.__name__}.Protocol, str | None, dict | None]'>"
+
+    def __instancecheck__(self, instance):
+        return (
+            isinstance(instance, tuple) and
+            len(instance) == 3 and
+            issubclass(instance[0], io.Protocol) and       # Protocol class to instantiate.
+            isinstance(instance[1], (str, type(None))) and # Name of protocol register interface.
+            isinstance(instance[2], (dict, type(None)))    # Keyword arguments to protocol.
+        )
+ProtocolConfig = _ProtocolConfig()
 
 #---------------------------------------------------------------------------------------------------
 class Config(config.Config):
     align = config.PositiveInt(1)
     data_width = config.PositiveInt()
     domain_class = config.SubClass(counting.Domain)
-    indirect = config.Bool(False)
     offset = config.PositiveInt(0)
     pad = config.PositiveInt(0)
     pad_to = config.PositiveInt(0)
+    protocol = config.ClassInstance(ProtocolConfig)
 
 #---------------------------------------------------------------------------------------------------
 # Meta-data attached to instances.
@@ -24,6 +42,13 @@ class Node(tree.Node):
         # parent's counting domain is used instead of creating a local one.
         if isinstance(self.parent, tree.Root):
             self.config.domain_class(self.config.data_width, self.spec)
+
+    @property
+    def protocol(self):
+        if self._protocol is None and self.config.protocol is not None:
+            cls, if_name, kargs = self.config.protocol
+            self._protocol = cls(self.spec, if_name, **({} if kargs is None else kargs))
+        return self._protocol
 
     def init_region(self, region):
         # An address space can only be defined within a word counting region.
@@ -43,6 +68,14 @@ class Node(tree.Node):
         #             forms an isolated island of it's own and does not occupy space seen by the
         #             outer region. However, the objects within the inner region will be included
         #             when assigning object IDs and ordinals to give the appearance of continuity.
+        indirect = self.config.protocol is not None
+
+        # The address space is embedded into another, so apply the base offset and alignment to the
+        # outer region of the parent address space.
+        if region.parent is not None:
+            if self.config.offset > 0:
+                region.goto(self.config.offset)
+            region.align(self.config.align)
 
         # Mark the inner region's beginning and change the data word width. This may result in a
         # re-alignment of the outer region to a joint word boundary. This ensures that the outer
@@ -50,14 +83,14 @@ class Node(tree.Node):
         # suits the configured width. Also,
         # - When access is direct, counting is continued from the outer region.
         # - When access is indirect, counting is reset to ensure the inner region starts at 0.
-        region.begin(self.config.indirect, self.config.data_width)
+        region.begin(indirect, self.config.data_width)
 
-        # Set the base offset in the inner region.
-        if self.config.offset > 0:
-            region.goto(self.config.offset)
-
-        # Make sure the offset is properly aligned in the inner region.
-        region.align(self.config.align)
+        # The address space is standalone, so apply the base offset and alignment to it's inner
+        # region.
+        if region.parent is None:
+            if self.config.offset > 0:
+                region.goto(self.config.offset)
+            region.align(self.config.align)
 
         # Add the address space members.
         for node in self.children:
@@ -72,7 +105,7 @@ class Node(tree.Node):
         # joint word boundary. Also,
         # - When access is direct, the outer region is updated for the inner region's size.
         # - When access is indirect, the outer region is not updated for the inner region's size.
-        region.end(not self.config.indirect)
+        region.end(not indirect)
 
 #---------------------------------------------------------------------------------------------------
 class AddressSpace(meta.Object, metainfo=(Config, Node)): ...

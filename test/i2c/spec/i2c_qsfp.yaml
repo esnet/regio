@@ -1,0 +1,21 @@
+name: i2c_qsfp
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  lower: &lower
+    !include i2c_qsfp_lower.yaml
+
+decoders:
+  upper: &upper
+    !include i2c_qsfp_upper.yaml
+
+interfaces:
+  - name: lower
+    block: *lower
+    address: 0x00
+    width: 8
+    view:
+      name: upper
+      decoder: *upper

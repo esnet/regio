@@ -1,0 +1,20 @@
+name: i2c_0_mux_0_channel_3_bus
+visible: true
+data_width: 8
+info: tbd
+
+blocks:
+  client: &client
+    !include i2c_client.yaml
+
+decoders:
+  qsfp: &qsfp
+    !include i2c_qsfp_flat.yaml
+
+interfaces:
+  - name: client_50
+    block: *client
+    address: 0x50
+    view:
+      name: qsfp
+      decoder: *qsfp

@@ -457,8 +457,10 @@ A decoder consists of the following attributes
   * when "true", the decoder will remain in the register map hierarchy
     * all interfaces under a decoder will remain as is in the register map hierarchy, making the decoder non-transparent
   * primarily used by `regio-generate` when defining the register map overlay structures
+* data_width: specifies the bit width of a data word (defaults to the width of the interfaces, which must all be the same)
 * blocks: instances of blocks referenced in other sections
 * decoders: instances of child decoders referenced in other sections
+* protocol: specifies that the decoder implements an indirect memory controller and provides the Python source for accessing it with the `regio` tool (refer to the Protocols section for details)
 * interfaces: address ranges that map to other blocks or child decoders
   * name: (optional) name for this interface
     * used in generated sv decoders
@@ -468,9 +470,16 @@ A decoder consists of the following attributes
   * address: base address of each interface within the address space of this decoder
   * width: (optional) size of this interface's address space (2^width)
   * size: (optional) size of this interface's address space (can be non-power of 2)
+  * view: defines the indirect memory accessible from the interface's target block or decoder (refer to the Protocols section for details)
 
 Block level
 -----------
+A block consists of the following attributes
+* name: the name of the block
+* info: documentation string to describe the block's function
+* data_width: specifies the bit width of a data word (defaults to 32 bits)
+* protocol: specifies that the block implements an indirect memory controller and provides the Python source for accessing it with the `regio` tool (refer to the Protocols section for details)
+* regs: list of registers implemented by the block
 
 A register consists of the following attributes
 * name: the name of the register
@@ -514,3 +523,99 @@ The `default` pseudo entry is used to set default attributes for all subsequent 
 The `meta` pseudo entry currently supports the following attributes which modify the metadata context during elaboration:
 * pad_until: insert padding into the `register` or `field` to move the offset to the target value
 
+Protocols
+---------
+Protocols allow accessing memories that are not directly mapped into the top-level address space. Such a memory is part of a separate address space and is accessed indirectly via a controller whose role is to bridge two distinct address spaces. Using a protocol requires defining a view on the decoder interface through which the controller registers are available. The views are rendered into the Python library produced by the `regio-generate` tool as virtual nodes that appear similar to a block or nested decoder. In conjunction with a per-view instance of a protocol, the `regio` tool grants access to the memories behind the views transparently, using the same syntax as directly accessible registers.
+
+The following YAML snippets demonstrate how to declare a protocol within the block for a controller and how to declare a view that references it within a decoder interface:
+```
+# Snippet taken from test/protocol/spec/protocol_single_controller.yaml
+protocol:
+  name: slots
+  source: !include protocol_slots.py
+
+# Snippet taken from test/protocol/spec/protocol_top.yaml
+decoder:
+  blocks:
+    single_controller: &single_controller
+      !include protocol_single_controller.yaml
+    single_view: &single_view
+      !include protocol_single_view.yaml
+  interfaces:
+    - name: single_controller
+      block: *single_controller
+      address: 0x00000
+      width: 16
+      view:
+        name: single_view
+        block: *single_view
+```
+
+Refer to the `test/protocol/spec` directory for the complete regmap specification.
+
+A protocol consists of the following attributes:
+* name: The name of the protocol. The name and source must form a globally unique pair to ensure that the `regio-generate` tool is able to correctly associate the source with the views that use it in the generated regmap library.
+* source: The Python code implementing the protocol. The methods of a protocol class will be invoked automatically by the `regio` tool when a Python library proxy object is read from or written to, redirecting the IO operation to the protocol rather than using the underlying IO accessor directly (i.e. mmap for a PCIe BAR).
+* class: Attributes to control the instantiation of a protocol.
+  * name: The name of the Python class to be instantiated. This class must inherit from `regio.regmap.io.methods.Protocol`.
+  * args: A mapping of Python keyword arguments to be passed to the driver during instantiation.
+
+A protocol view consist of the following attributes:
+* name: The name of the virtual node for the indirect memory. Appears in the namespace of the parent decoder and must be unique within that scope.
+* block: A reference to the block describing the regmap behind the indirect memory view. Is mutually exclusive with the decoder attribute.
+* decoder: A reference to the decoder describing the regmap behind the indirect memory view. Is mutually exclusive with the block attribute.
+* protocol: An optional definition of the protocol to use for accessing the view. When not specified, the protocol is taken from the controller block or decoder the view is attached to.
+* class: Same structure as the class attribute for protocols. These attributes are merged with those from the protocol, replacing any existing ones and adding any new ones. This allows a protocol to be re-used by any views, while customizing it's run-time behaviour as needed.
+
+Protocol Implementation
+-----------------------
+A protocol is implemented within a regular Python module containing a class derived from the `Protocol` base class exported by `regio.regmap.io.methods`. By means of a `!include` statement in the specification YAML, the `regio-elaborate` tool will read the entire contents of the file into the elaborated regmap, ensuring that the protocol is coupled with the register definitions. Any Python package dependencies required by the module will need to be installed separately on the running system prior to use of the generated `regio` tool.
+
+The Python code listing below provides a skeleton for defining a custom protocol. Aside from the constructor, all methods are handed an IO proxy object to use for accessing the controller registers needed to implement the details of the protocol. The proxy references the regmap node for the target of the decoder interface that defined the view.
+* If the interface targets a block, then the block's registers will be directly accessible from the proxy.
+* If the interface targets a decoder, then the registers will be accessible from a child node that will be either a sub-decoder or a block.
+```
+#---------------------------------------------------------------------------------------------------
+__all__ = (
+    'Protocol',
+)
+
+from regio.regmap.io import methods
+
+#---------------------------------------------------------------------------------------------------
+class Protocol(methods.Protocol):
+    # Override for custom instance initialization (OPTIONAL -- leave undefined if nothing to do).
+    def __init__(self, spec, if_name, **kargs):
+        # Perform custom instance initialization...
+        super().__init__(spec, if_name) # Hand-off to base class.
+
+    # Override for custom start sequence (OPTIONAL -- leave undefined if nothing to do).
+    def start(self, proxy):
+        # Perform custom start sequence...
+        super().start(proxy) # Hand-off to base class.
+
+    # Override for custom stop sequence (OPTIONAL -- leave undefined if nothing to do).
+    def stop(self, proxy):
+        # Perform custom stop sequence...
+        super().stop(proxy) # Hand-off to base class.
+
+    # Override for custom read operation (REQUIRED).
+    def read(self, proxy, offset, size):
+        # Perform protocol's read operation...
+        value = 0
+        return value # Return integer result.
+
+    # Override for custom write operation (REQUIRED).
+    def write(self, proxy, offset, size, value):
+        # Perform protocol's write operation...
+```
+
+The `Protocol` base class also provides an `update` method, which performs a read/and-mask/or-mask/write sequence used for updating a bit field within a register. In most cases, the default implementation should be sufficient, but it can be overridden as well if needed. It's signature is as follows:
+```
+    # Override for custom update operation (OPTIONAL -- leave undefined if nothing to do).
+    def update(self, proxy, offset, size, clr_mask, set_mask):
+        # Perform a read operation at given offset...
+        # Apply clr_mask to clear the bits being operated on.
+        # Apply set_mask to set the bits being operated on.
+        # Perform a write operation of the modified value to the given offset...
+```

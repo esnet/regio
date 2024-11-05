@@ -29,6 +29,58 @@ def decoders_from_regions(regions, recurse=False):
 def decoders_from_interfaces(interfaces):
     return targets_from_list(interfaces, 'decoder', 'interfaces', True)
 
+def protocols_from_regions(regions):
+    protos = {}
+    decs = {}
+    blks = {}
+
+    # Find all the protocols implemented by the given decoder's regions.
+    for region in regions:
+        view = region.get('view')
+        if view is None:
+            continue
+
+        proto = view['protocol']
+        protos[proto['name']] = proto
+
+        if 'block' in view:
+            blk = view['block']
+            blks[blk['name']] = blk
+        else:
+            dec = view['decoder']
+            decs[dec['name']] = dec
+
+    return protos, decs, blks
+
+def protocols_from_decoders(decs):
+    protos = {}
+    proto_decs = {}
+    proto_blks = {}
+
+    # Find all the indirect decoders/blocks accessible via protocol views.
+    for dec in decs.values():
+        p, pdecs, pblks = protocols_from_regions(dec['regions'])
+        protos.update(p)
+        proto_blks.update(pblks)
+
+        # Recursively find all the visible decoders accessible through views in the regions.
+        for pd in list(pdecs.values()):
+            pdecs.update(decoders_from_regions(pd['regions'], True))
+        proto_decs.update(pdecs)
+
+    # Find all the blocks accessed through the protocol's decoder tree.
+    for dec in proto_decs.values():
+        proto_blks.update(blocks_from_regions(dec['regions']))
+
+    # Recurse to find all nested layers of protocols.
+    if proto_decs:
+        p, pdecs, pblks = protocols_from_decoders(proto_decs)
+        protos.update(p)
+        proto_decs.update(pdecs)
+        proto_blks.update(pblks)
+
+    return protos, proto_decs, proto_blks
+
 @click.command()
 @click.option('-t', '--template-dir',
               help="Path to the templates",
@@ -63,6 +115,13 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
     env = Environment(loader=FileSystemLoader(str(template_dir)))
     env.add_extension('jinja2.ext.loopcontrols')
 
+    # Custom jinja2 filter to convert a dictionary of key:value pairs into a string of comma
+    # separated keyword arguments key=value.
+    # Usage: {{ some_dict | py_kwargs }}
+    def py_kwargs(in_dict):
+        return ', '.join(f'{key}={in_dict[key]!r}' for key in sorted(in_dict.keys()))
+    env.filters['py_kwargs'] = py_kwargs
+
     regmap = parser.load(yaml_file)
 
     top = None
@@ -73,11 +132,21 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
         top = regmap['toplevel']
         top_blks = {}
         top_decs = {}
+        top_protos = {}
+        top_proto_decs = {}
+        top_proto_blks = {}
         for bar in top['bars'].values():
             # Add all blocks and decoders referenced by all regions in the bar
             regions = bar['regions']
             top_blks.update(blocks_from_regions(regions))
             top_decs.update(decoders_from_regions(regions))
+
+            # Gather the protocols used by the BARs. Keep them separate as they're only relevant
+            # to the Python generator.
+            protos, pdecs, pblks = protocols_from_regions(regions)
+            top_protos.update(protos)
+            top_proto_decs.update(pdecs)
+            top_proto_blks.update(pblks)
 
             if recursive:
                 dec = bar['decoder']
@@ -96,14 +165,22 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
         sys.exit(1)
 
     if recursive:
-        for dec in list(visible_decs.values()): # list is needed to prevent in-place update
-            visible_decs.update(decoders_from_regions(dec['regions'], True))
-
         for dec in list(all_decs.values()): # list is needed to prevent in-place update
             all_decs.update(decoders_from_interfaces(dec['interfaces']))
 
         for dec in all_decs.values():
             blks.update(blocks_from_regions(dec['regions']))
+
+        # Find all of the directly accessible decoders (not associated with protocols).
+        for dec in list(visible_decs.values()): # list is needed to prevent in-place update
+            visible_decs.update(decoders_from_regions(dec['regions'], True))
+
+        # Find all protocols and their indirectly accessible decoders and blocks.
+        protos, pdecs, pblks = protocols_from_decoders(all_decs)
+        visible_decs.update(pdecs)
+        blks.update(pblks)
+    else:
+        protos = {}
 
     if 'sv' in generators:
         # for sv generators, produce only the outputs for the given file type, not for dependent file types
@@ -201,11 +278,16 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             #        |   |-- block_0.py
             #        |   :
             #        |   \-- block_M.py
-            #        \-- decoders/
+            #        |-- decoders/
+            #        |   |-- __init__.py
+            #        |   |-- decoder_0.py
+            #        |   :
+            #        |   \-- decoder_N.py
+            #        \-- protocols/
             #            |-- __init__.py
-            #            |-- decoder_0.py
+            #            |-- protocol_0.py
             #            :
-            #            \-- decoder_N.py
+            #            \-- protocol_N.py
             output_path /= 'python'
             output_path.mkdir()
 
@@ -221,10 +303,14 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
             with outfilename.open(mode='w') as f:
                 f.write('# NOTE: This file was autogenerated by regio.\n')
 
+            # Include decoders and blocks for any protocols used by top-level BAR decoders.
+            top_decs.update(top_proto_decs)
+            top_blks.update(top_proto_blks)
+
             t = env.get_template('toplevel_py.j2')
             outfilename = output_path / 'toplevel.py'
             with outfilename.open(mode='w') as f:
-                t.stream(top = top, blks = top_blks, decs = top_decs).dump(f)
+                t.stream(top = top, blks = top_blks, decs = top_decs, protos = top_protos).dump(f)
 
             t = env.get_template('regio_py.j2')
             outfilename = output_path / 'regio.py'
@@ -236,6 +322,8 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
                 sub_dirs.append('blocks')
             if visible_decs:
                 sub_dirs.append('decoders')
+            if protos:
+                sub_dirs.append('protocols')
 
             for sub_dir in sub_dirs:
                 out_path = output_path / sub_dir
@@ -255,10 +343,18 @@ def click_main(template_dir, output_dir, prefix, recursive, file_type, generator
         for name, dec in visible_decs.items():
             dec_blks = blocks_from_regions(dec['regions'])
             sub_decs = decoders_from_regions(dec['regions'])
+            dec_protos, pdecs, pblks = protocols_from_regions(dec['regions'])
+            sub_decs.update(pdecs)
+            dec_blks.update(pblks)
 
             outfilename = output_path / ('' if top is None else 'decoders') / (name + '_decoder.py')
             with outfilename.open(mode='w') as f:
-                dec_tmpl.stream(dec = dec, blks = dec_blks, decs = sub_decs).dump(f)
+                dec_tmpl.stream(dec = dec, blks = dec_blks, decs = sub_decs, protos = dec_protos).dump(f)
+
+        for name, proto in protos.items():
+            outfilename = output_path / ('' if top is None else 'protocols') / (name + '_protocol.py')
+            with outfilename.open(mode='w') as f:
+                f.write(proto['source']['data'])
 
 def main():
     click_main()

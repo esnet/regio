@@ -8,8 +8,9 @@ import click
 import pathlib
 import sys
 
-from regio.regmap.io import *
+from regio.regmap.io.methods import *
 from regio.regmap.proxy import ClickEnvironment, for_io_by_path
+from regio.regmap.spec import qualname_of
 
 #---------------------------------------------------------------------------------------------------
 THIS_FILE = pathlib.Path(sys.argv[0])
@@ -17,12 +18,32 @@ THIS_FILE = pathlib.Path(sys.argv[0])
 def test_path(pid, bid):
     return THIS_FILE.stem + f'.{pid}.bar{bid}.bin'
 
+def test_indirect_path(pid, bid, spec):
+    return THIS_FILE.stem + f'.{pid}.bar{bid}.indirect.{qualname_of(spec)}.bin'
+
 IO_TYPES = {
-    'dict': lambda spec, pid, bid: DictIO(),
-    'list': lambda spec, pid, bid: ListIOForSpec(spec),
-    'mmap': lambda spec, pid, bid: FileMmapIOForSpec(spec, test_path(pid, bid)),
-    'stream': lambda spec, pid, bid: FileStreamIOForSpec(spec, test_path(pid, bid)),
-    'zero': lambda spec, pid, bid: ZeroIO(),
+    'dict': {
+        'io': lambda spec, pid, bid: DictIO(),
+        'protocol': lambda pid, bid: lambda spec: DictProtocol(spec, None),
+    },
+    'list': {
+        'io': lambda spec, pid, bid: ListIOForSpec(spec),
+        'protocol': lambda pid, bid: lambda spec: ListProtocolForSpec(spec),
+    },
+    'mmap': {
+        'io': lambda spec, pid, bid: FileMmapIOForSpec(spec, test_path(pid, bid)),
+        'protocol': lambda pid, bid: lambda spec: FileMmapProtocolForSpec(
+            spec, test_indirect_path(pid, bid, spec)),
+    },
+    'stream': {
+        'io': lambda spec, pid, bid: FileStreamIOForSpec(spec, test_path(pid, bid)),
+        'protocol': lambda pid, bid: lambda spec: FileStreamProtocolForSpec(
+            spec, test_indirect_path(pid, bid, spec)),
+    },
+    'zero': {
+        'io': lambda spec, pid, bid: ZeroIO(),
+        'protocol': lambda pid, bid: lambda spec: ZeroProtocol(spec, None),
+    },
 }
 
 #---------------------------------------------------------------------------------------------------
@@ -78,9 +99,21 @@ def new_click_main(top, envvar_prefix=None):
         type=click.Choice(tuple(sorted(IO_TYPES))),
         show_envvar=True,
     )
+    @click.option(
+        '--no-protocol-override',
+        help='''
+        When running in test mode with the --test-io option, don't override any IO protocols for
+        accessing indirect memory views defined in the regmap. Note that accesses may fail if the
+        underlying registers don't behave as expected (for example, a timeout while waiting for a
+        completion status bit to change, etc...).
+        ''',
+        is_flag=True,
+        default=False,
+        show_envvar=True,
+    )
     @ClickEnvironment.main_options
     @click.pass_context
-    def click_main(ctx, pci_ids, bar_ids, test_io, **env_kargs):
+    def click_main(ctx, pci_ids, bar_ids, test_io, no_protocol_override, **env_kargs):
         if 'all' in pci_ids:
             pci_ids = PCI_IDS
 
@@ -105,9 +138,16 @@ def new_click_main(top, envvar_prefix=None):
             dev.pci_id = pid
 
             # Create the proxy on the BAR(s).
+            io = None
+            pkargs = proxy_kargs
             for bid in bar_ids:
-                io = None if io_type is None else io_type(specs[bid], pid, bid)
-                proxy = top.BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **proxy_kargs)
+                if io_type is not None:
+                    io = io_type['io'](specs[bid], pid, bid)
+                    if not no_protocol_override:
+                        pkargs = proxy_kargs.copy()
+                        pkargs['protocol_override'] = io_type['protocol'](pid, bid)
+
+                proxy = top.BAR_INFO[bid]['new_proxy'](pid, specs[bid], io, **pkargs)
                 setattr(dev, f'bar{bid}', proxy)
 
         # Invoked for command line completion, so don't do anything more.

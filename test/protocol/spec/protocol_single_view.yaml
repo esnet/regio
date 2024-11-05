@@ -1,0 +1,25 @@
+name: protocol_single_view
+info: Example block for simulating indirectly accessible registers behind a view.
+
+regs:
+  - default:
+      width: 32
+      access: rw
+  - name: first
+    fields:
+      - name: lower
+        width: 16
+      - name: upper
+        width: 16
+  - name: second
+    fields:
+      - name: a_bit
+        width: 1
+      - name: a_pair
+        width: 2
+  - name: third
+    fields:
+      - name: a_nibble
+        width: 4
+      - name: a_triplet
+        width: 3
